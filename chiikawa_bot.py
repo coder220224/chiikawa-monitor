@@ -8,6 +8,8 @@ from chiikawa_monitor import ChiikawaMonitor
 import logging
 import sys
 from config import TOKEN, CHANNEL_ID, WORK_DIR
+from aiohttp import web
+import socket
 
 if not os.path.exists(WORK_DIR):
     os.makedirs(WORK_DIR)
@@ -22,6 +24,7 @@ class ProxyBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self.session = None
         self.connector = None
+        self.web_server_task = None
         # 設置端口
         self.port = int(os.getenv('PORT', 8080))
 
@@ -38,6 +41,10 @@ class ProxyBot(commands.Bot):
             connector=self.connector
         )
         print("會話設置完成")
+        
+        # 啟動 web 服務器
+        self.web_server_task = self.loop.create_task(setup_webserver())
+        print("Web 服務器啟動中...")
 
     async def start(self, *args, **kwargs):
         try:
@@ -52,6 +59,12 @@ class ProxyBot(commands.Bot):
                 await self.session.close()
             if self.connector:
                 await self.connector.close()
+            if self.web_server_task:
+                self.web_server_task.cancel()
+                try:
+                    await self.web_server_task
+                except asyncio.CancelledError:
+                    pass
             await super().close()
         except Exception as e:
             print(f"關閉時發生錯誤: {e}")
@@ -294,6 +307,19 @@ async def show_commands(ctx):
     )
     
     await ctx.send(embed=embed)
+
+async def healthcheck(request):
+    return web.Response(text="Bot is running!")
+
+async def setup_webserver():
+    app = web.Application()
+    app.router.add_get('/', healthcheck)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Web server started on port {port}")
 
 # 運行 Bot
 if __name__ == "__main__":
