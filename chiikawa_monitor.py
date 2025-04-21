@@ -16,7 +16,8 @@ class ChiikawaMonitor:
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
         # SQLite 數據庫設置
-        self.db_path = os.path.join(self.work_dir, 'chiikawa.db')
+        self.db_path = os.path.join(WORK_DIR, 'chiikawa.db')
+        self.conn = sqlite3.connect(self.db_path)
         self.init_db()
         print("SQLite 數據庫連接成功！")
 
@@ -38,8 +39,7 @@ class ChiikawaMonitor:
 
     def init_db(self):
         """初始化 SQLite 數據庫"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        c = self.conn.cursor()
         
         # 創建商品表（添加更多欄位）
         c.execute('''CREATE TABLE IF NOT EXISTS products
@@ -61,14 +61,26 @@ class ChiikawaMonitor:
                      url TEXT,
                      time TIMESTAMP)''')
         
-        conn.commit()
-        conn.close()
+        self.conn.commit()
 
     def update_excel(self):
         """更新 Excel 文件"""
         try:
             # 從數據庫獲取所有商品
-            conn = sqlite3.connect(self.db_path)
+            c = self.conn.cursor()
+            c.execute('''
+                SELECT 
+                    name as '商品名稱',
+                    price as '價格',
+                    CASE 
+                        WHEN available = 1 THEN '有貨'
+                        ELSE '無貨'
+                    END as '庫存狀態',
+                    url as '商品連結',
+                    last_seen as '最後更新時間'
+                FROM products
+                ORDER BY name
+            ''')
             df = pd.read_sql_query('''
                 SELECT 
                     name as '商品名稱',
@@ -81,7 +93,7 @@ class ChiikawaMonitor:
                     last_seen as '最後更新時間'
                 FROM products
                 ORDER BY name
-            ''', conn)
+            ''', self.conn)
             
             # 格式化時間列
             df['最後更新時間'] = pd.to_datetime(df['最後更新時間']).dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -90,7 +102,6 @@ class ChiikawaMonitor:
             df.to_excel(self.excel_path, index=False, engine='openpyxl')
             print(f"已更新 Excel 文件：{self.excel_path}")
             
-            conn.close()
             return True
         except Exception as e:
             print(f"更新 Excel 時發生錯誤：{str(e)}")
@@ -196,8 +207,7 @@ class ChiikawaMonitor:
     def update_products(self, products_data):
         """更新數據庫中的商品資料"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
+            c = self.conn.cursor()
             
             # 清空現有資料
             c.execute('DELETE FROM products')
@@ -210,8 +220,7 @@ class ChiikawaMonitor:
                         (product['url'], product['name'], product['price'],
                          product['available'], product['last_seen']))
             
-            conn.commit()
-            conn.close()
+            self.conn.commit()
             return True
         except Exception as e:
             print(f"更新數據庫時發生錯誤：{str(e)}")
@@ -219,8 +228,7 @@ class ChiikawaMonitor:
 
     def get_all_products(self):
         """獲取所有商品"""
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        c = self.conn.cursor()
         c.execute('SELECT * FROM products')
         products = []
         for row in c.fetchall():
@@ -231,21 +239,18 @@ class ChiikawaMonitor:
                 'available': bool(row[3]),
                 'last_seen': row[4]
             })
-        conn.close()
         return products
 
     def record_history(self, product, type_):
         """記錄商品歷史（上架或下架）"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
+            c = self.conn.cursor()
             c.execute('''INSERT INTO history 
                         (date, type, name, url, time)
                         VALUES (?, ?, ?, ?, ?)''',
                      (datetime.now(), type_, product['name'], 
                       product['url'], datetime.now()))
-            conn.commit()
-            conn.close()
+            self.conn.commit()
             return True
         except Exception as e:
             print(f"記錄歷史時發生錯誤：{str(e)}")
@@ -254,8 +259,7 @@ class ChiikawaMonitor:
     def get_today_history(self, type_):
         """獲取今日的歷史記錄"""
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        c = self.conn.cursor()
         c.execute('''SELECT * FROM history 
                     WHERE date >= ? AND type = ?''',
                  (today, type_))
@@ -268,7 +272,6 @@ class ChiikawaMonitor:
                 'url': row[4],
                 'time': row[5]
             })
-        conn.close()
         return history
 
     def check_product_url(self, url):
