@@ -14,6 +14,7 @@ import urllib3
 import requests.packages.urllib3.util.ssl_
 import sys
 import traceback
+import brotli  # 添加 brotli 支持
 
 # 設置日誌
 logging.basicConfig(
@@ -68,7 +69,7 @@ class ChiikawaMonitor:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Encoding": "gzip, deflate, br",  # 明確支持 br (Brotli) 壓縮
             "Connection": "keep-alive",
             "Referer": "https://chiikawamarket.jp/",
             "Sec-Fetch-Dest": "empty",
@@ -80,7 +81,17 @@ class ChiikawaMonitor:
         # 創建 Session 並設置 SSL 驗證
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        self.session.verify = False  # 在這種情況下，我們選擇禁用驗證，但已經禁用了警告
+        self.session.verify = False
+
+    def decode_response(self, response):
+        """解碼響應內容，處理各種壓縮格式"""
+        try:
+            if response.headers.get('content-encoding') == 'br':
+                return brotli.decompress(response.content).decode('utf-8')
+            return response.text
+        except Exception as e:
+            logger.error(f"解碼響應內容失敗: {str(e)}")
+            return None
 
     def update_excel(self):
         """更新 Excel 文件"""
@@ -113,16 +124,13 @@ class ChiikawaMonitor:
                 logger.info("\n1. 測試基礎連接...")
                 test_response = self.session.get(self.base_url, timeout=30)
                 logger.info(f"基礎連接狀態碼: {test_response.status_code}")
-                logger.info(f"響應頭: {dict(test_response.headers)}")
                 
                 if test_response.status_code != 200:
                     logger.error(f"警告：基礎連接返回非 200 狀態碼")
-                    logger.error(f"響應內容: {test_response.text[:500]}")
                     return []
                     
             except requests.exceptions.RequestException as e:
                 logger.error(f"基礎連接測試失敗: {str(e)}")
-                logger.error(f"請求標頭: {self.headers}")
                 logger.error(traceback.format_exc())
                 return []
             
@@ -139,30 +147,31 @@ class ChiikawaMonitor:
                     timeout=30
                 )
                 logger.info(f"API 響應狀態碼: {api_response.status_code}")
-                logger.info(f"API 響應頭: {dict(api_response.headers)}")
                 
                 if api_response.status_code == 200:
-                    try:
-                        data = api_response.json()
-                        logger.info("成功解析 JSON 響應")
-                        logger.info(f"響應數據預覽: {str(data)[:200]}")
-                        
-                        if 'products' not in data:
-                            logger.error("錯誤：響應中沒有 products 字段")
-                            return []
+                    content = self.decode_response(api_response)
+                    if content:
+                        try:
+                            data = json.loads(content)
+                            logger.info("成功解析 JSON 響應")
+                            logger.info(f"響應數據預覽: {str(data)[:200]}")
                             
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON 解析失敗: {str(e)}")
-                        logger.error(f"原始響應內容: {api_response.text[:500]}")
+                            if 'products' not in data:
+                                logger.error("錯誤：響應中沒有 products 字段")
+                                return []
+                                
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON 解析失敗: {str(e)}")
+                            return []
+                    else:
+                        logger.error("無法解碼響應內容")
                         return []
                 else:
                     logger.error(f"API 請求失敗，狀態碼: {api_response.status_code}")
-                    logger.error(f"錯誤響應: {api_response.text[:500]}")
                     return []
                     
             except requests.exceptions.RequestException as e:
                 logger.error(f"API 請求失敗: {str(e)}")
-                logger.error(f"請求標頭: {self.headers}")
                 logger.error(traceback.format_exc())
                 return []
                 
