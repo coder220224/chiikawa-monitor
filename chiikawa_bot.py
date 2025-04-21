@@ -299,6 +299,95 @@ async def delisted(ctx):
     except Exception as e:
         await ctx.send(f"讀取下架記錄時發生錯誤：{str(e)}")
 
+@bot.command(name='檢查')
+async def check_product_count(ctx):
+    """檢查商品總數"""
+    try:
+        await ctx.send("開始檢查商品總數...")
+        
+        # 獲取資料庫中的商品數量
+        db_products = monitor.get_all_products()
+        db_count = len(db_products)
+        
+        # 獲取網站上的商品數量（API方式）
+        new_products = await bot.loop.run_in_executor(None, monitor.fetch_products)
+        api_count = len(new_products)
+        
+        # 從網頁直接獲取商品數量
+        web_count = await bot.loop.run_in_executor(None, monitor.get_total_products_from_web)
+        
+        # 創建嵌入消息
+        embed = discord.Embed(
+            title="🔍 商品數量檢查",
+            description="比較不同來源的商品數量",
+            color=0x00ff00
+        )
+        
+        embed.add_field(
+            name="資料庫商品數量",
+            value=f"📚 {db_count} 個商品",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="API 獲取數量",
+            value=f"🌐 {api_count} 個商品",
+            inline=True
+        )
+        
+        if web_count is not None:
+            embed.add_field(
+                name="網頁顯示數量",
+                value=f"🔖 {web_count} 個商品",
+                inline=True
+            )
+        
+        # 檢查差異
+        has_difference = False
+        differences = []
+        
+        if api_count != db_count:
+            diff = abs(api_count - db_count)
+            differences.append(f"API 與資料庫差異：{diff} 個商品")
+            has_difference = True
+            
+        if web_count is not None:
+            if web_count != api_count:
+                diff = abs(web_count - api_count)
+                differences.append(f"網頁與 API 差異：{diff} 個商品")
+                has_difference = True
+            if web_count != db_count:
+                diff = abs(web_count - db_count)
+                differences.append(f"網頁與資料庫差異：{diff} 個商品")
+                has_difference = True
+        
+        if has_difference:
+            embed.add_field(
+                name="⚠️ 發現差異",
+                value="\n".join(differences) + "\n建議執行 !start 更新資料",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="✅ 檢查結果",
+                value="所有來源的商品數量一致",
+                inline=False
+            )
+        
+        # 添加商品列表頁面連結
+        embed.add_field(
+            name="🔗 商品列表",
+            value=f"[點擊查看網站商品列表]({monitor.base_url}/zh-hant/collections/all)",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"檢查失敗：{str(e)}")
+        logger.error(f"檢查失敗：{str(e)}")
+        logger.error(traceback.format_exc())
+
 @bot.command(name='commands', aliases=['command', '指令'])
 async def show_commands(ctx):
     """顯示所有可用的指令"""
@@ -321,6 +410,11 @@ async def show_commands(ctx):
     embed.add_field(
         name="!下架",
         value="顯示今日下架的商品",
+        inline=False
+    )
+    embed.add_field(
+        name="!檢查",
+        value="檢查資料庫和網站的商品數量是否一致",
         inline=False
     )
     embed.add_field(
