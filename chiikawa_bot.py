@@ -22,6 +22,8 @@ class ProxyBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self.session = None
         self.connector = None
+        # 設置端口
+        self.port = int(os.getenv('PORT', 8080))
 
     async def setup_hook(self):
         # 創建連接器
@@ -73,18 +75,33 @@ async def check_updates(channel):
         print(f"\n=== {current_time} 開始檢查更新 ===")
         
         # 獲取舊的商品資料
-        old_products = {p['url']: p for p in monitor.get_all_products()}
+        try:
+            old_products = {p['url']: p for p in monitor.get_all_products()}
+            print(f"成功獲取現有商品數據：{len(old_products)} 個")
+        except Exception as e:
+            print(f"獲取現有商品數據失敗：{str(e)}")
+            await channel.send(f"錯誤：無法獲取現有商品數據 - {str(e)}")
+            return
         
         # 獲取新的商品資料
-        new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
-        new_products = {p['url']: p for p in new_products_data}
-        
-        if not new_products:
-            print("無法獲取商品數據")
+        try:
+            print("開始獲取新商品數據...")
+            new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
+            if not new_products_data:
+                print("獲取新商品數據失敗：返回空列表")
+                await channel.send("錯誤：無法獲取新商品數據")
+                return
+                
+            new_products = {p['url']: p for p in new_products_data}
+            print(f"成功獲取新商品數據：{len(new_products)} 個")
+        except Exception as e:
+            print(f"獲取新商品數據時發生錯誤：{str(e)}")
+            await channel.send(f"錯誤：獲取新商品數據失敗 - {str(e)}")
             return
             
         # 檢查是否是第一次執行（資料庫為空）
         is_first_run = len(old_products) == 0
+        print(f"是否首次執行：{is_first_run}")
         
         # 比對差異
         new_listings = []  # 新上架
