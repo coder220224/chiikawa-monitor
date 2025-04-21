@@ -84,67 +84,124 @@ class ChiikawaMonitor:
     def fetch_products(self):
         """獲取所有商品信息"""
         try:
-            print("開始獲取所有商品數據...")
-            print(f"使用的基礎 URL: {self.base_url}")
+            print("\n=== 開始獲取商品數據 ===")
+            print(f"基礎 URL: {self.base_url}")
             
             # 測試基本連接
             try:
-                test_response = self.session.get(self.base_url, timeout=30)
-                print(f"基礎 URL 測試結果：{test_response.status_code}")
-            except Exception as e:
-                print(f"基礎 URL 測試失敗：{str(e)}")
+                print("\n1. 測試基礎連接...")
+                test_response = self.session.get(self.base_url, timeout=30, verify=False)
+                print(f"基礎連接狀態碼: {test_response.status_code}")
+                print(f"響應頭: {dict(test_response.headers)}")
+                
+                if test_response.status_code != 200:
+                    print(f"警告：基礎連接返回非 200 狀態碼")
+                    print(f"響應內容: {test_response.text[:500]}")
+                    return []
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"基礎連接測試失敗: {str(e)}")
+                print(f"請求標頭: {self.headers}")
+                return []
             
+            # 測試 API 端點
+            print("\n2. 測試商品 API...")
+            api_url = f"{self.base_url}/zh-hant/products.json"
+            print(f"API URL: {api_url}")
+            
+            try:
+                print("發送 API 請求...")
+                api_response = self.session.get(
+                    api_url, 
+                    params={'page': 1, 'limit': 1}, 
+                    timeout=30,
+                    verify=False
+                )
+                print(f"API 響應狀態碼: {api_response.status_code}")
+                print(f"API 響應頭: {dict(api_response.headers)}")
+                
+                if api_response.status_code == 200:
+                    try:
+                        data = api_response.json()
+                        print("成功解析 JSON 響應")
+                        print(f"響應數據預覽: {str(data)[:200]}")
+                        
+                        if 'products' not in data:
+                            print("錯誤：響應中沒有 products 字段")
+                            return []
+                            
+                    except json.JSONDecodeError as e:
+                        print(f"JSON 解析失敗: {str(e)}")
+                        print(f"原始響應內容: {api_response.text[:500]}")
+                        return []
+                else:
+                    print(f"API 請求失敗，狀態碼: {api_response.status_code}")
+                    print(f"錯誤響應: {api_response.text[:500]}")
+                    return []
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"API 請求失敗: {str(e)}")
+                print(f"請求標頭: {self.headers}")
+                return []
+                
+            # 開始獲取所有商品
+            print("\n3. 開始獲取完整商品列表...")
             total_products = 0
             page = 1
-            new_products_data = []  # 存儲新獲取的商品資料
+            new_products_data = []
             seen_handles = set()
             
             while True:
-                print(f"正在獲取第 {page} 頁商品...")
-                url = f"{self.base_url}/zh-hant/products.json"
-                params = {
-                    "page": page,
-                    "limit": 250
-                }
-                
                 try:
-                    response = self.session.get(url, params=params, timeout=30)
-                    response.raise_for_status()
-                    data = response.json()
+                    print(f"\n獲取第 {page} 頁...")
+                    response = self.session.get(
+                        api_url,
+                        params={'page': page, 'limit': 250},
+                        timeout=30,
+                        verify=False
+                    )
                     
+                    if response.status_code != 200:
+                        print(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
+                        print(f"錯誤響應: {response.text[:200]}")
+                        break
+                        
+                    try:
+                        data = response.json()
+                    except json.JSONDecodeError as e:
+                        print(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
+                        print(f"原始響應: {response.text[:200]}")
+                        break
+                        
                     if not isinstance(data, dict) or 'products' not in data:
-                        print(f"API響應格式不正確，頁碼: {page}")
-                        print(f"響應內容: {response.text[:200]}")
+                        print(f"第 {page} 頁數據格式錯誤")
+                        print(f"響應數據: {str(data)[:200]}")
                         break
-                    
-                    products_on_page = data.get('products', [])
-                    if not products_on_page:
-                        print(f"已到達最後一頁，總共獲取 {total_products} 個商品")
+                        
+                    products = data['products']
+                    if not products:
+                        print("沒有更多商品")
                         break
-                    
-                    page_product_count = 0
-                    for product in products_on_page:
+                        
+                    page_count = 0
+                    for product in products:
                         try:
                             handle = product.get('handle', '')
                             if not handle or handle in seen_handles:
                                 continue
-                            
+                                
                             seen_handles.add(handle)
                             title = product.get('title', '')
-                            
-                            # 只取第一個變體的價格
                             variants = product.get('variants', [])
+                            
                             price = 0
                             available = False
-                            
                             if variants:
                                 variant = variants[0]
                                 price = int(float(variant.get('price', 0)))
                                 available = variant.get('available', False)
-                            
+                                
                             product_url = f"{self.base_url}/zh-hant/products/{handle}"
-                            
-                            # 將商品資料添加到列表中
                             new_products_data.append({
                                 'url': product_url,
                                 'name': title,
@@ -154,37 +211,31 @@ class ChiikawaMonitor:
                             })
                             
                             total_products += 1
-                            page_product_count += 1
-                            print(f"處理商品: {title}")
-                                
+                            page_count += 1
+                            
                         except Exception as e:
-                            print(f"解析商品時出錯: {str(e)}")
-                    
-                    print(f"第 {page} 頁獲取完成，本頁新增 {page_product_count} 個商品，當前總數: {total_products}")
-                    
-                    if page_product_count == 0:
-                        print("本頁沒有新商品，停止獲取")
+                            print(f"處理商品時出錯: {str(e)}")
+                            continue
+                            
+                    print(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
+                    if page_count == 0:
                         break
                         
                     page += 1
-                    time.sleep(1)  # 增加延遲，避免請求過快
+                    time.sleep(1)
                     
-                except requests.exceptions.RequestException as e:
-                    print(f"請求失敗: {str(e)}")
-                    if hasattr(e.response, 'text'):
-                        print(f"錯誤響應: {e.response.text[:200]}")
-                    break
                 except Exception as e:
-                    print(f"其他錯誤: {str(e)}")
+                    print(f"處理第 {page} 頁時出錯: {str(e)}")
                     break
-            
-            print(f"\n商品數據獲取完成，共處理 {total_products} 個不重複商品")
+                
+            print(f"\n=== 商品獲取完成 ===")
+            print(f"總共獲取: {total_products} 個商品")
             return new_products_data
             
         except Exception as e:
-            print(f"獲取商品數據失敗: {str(e)}")
+            print(f"商品獲取過程中發生錯誤: {str(e)}")
             import traceback
-            print(f"詳細錯誤信息: {traceback.format_exc()}")
+            print(f"錯誤詳情:\n{traceback.format_exc()}")
             return []
 
     def update_products(self, products_data):
