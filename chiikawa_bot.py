@@ -630,6 +630,87 @@ async def check_status(ctx):
         logger.error(traceback.format_exc())
         await ctx.send(error_msg)
 
+@bot.command(name='歷史')
+async def history(ctx, days: int = 7):
+    """顯示指定天數內的商品變更記錄"""
+    try:
+        if days <= 0 or days > 30:
+            await ctx.send("請指定 1-30 天的範圍")
+            return
+            
+        # 計算起始時間
+        start_date = datetime.now() - timedelta(days=days)
+        
+        # 獲取歷史記錄
+        history_records = list(monitor.history.find({
+            'date': {'$gte': start_date}
+        }).sort('date', -1))
+        
+        if not history_records:
+            embed = discord.Embed(
+                title=f"近 {days} 天的商品變更記錄",
+                description="這段期間沒有商品變更記錄",
+                color=0xff0000
+            )
+            await ctx.send(embed=embed)
+            return
+            
+        # 按日期分組
+        records_by_date = {}
+        for record in history_records:
+            date_str = record['date'].strftime('%Y-%m-%d')
+            if date_str not in records_by_date:
+                records_by_date[date_str] = {'new': [], 'delisted': []}
+            records_by_date[date_str][record['type']].append(record)
+        
+        # 創建嵌入消息
+        embed = discord.Embed(
+            title=f"近 {days} 天的商品變更記錄",
+            description=f"從 {start_date.strftime('%Y-%m-%d')} 到現在",
+            color=0x00ff00
+        )
+        
+        # 添加每天的記錄
+        for date_str, records in records_by_date.items():
+            day_text = []
+            
+            if records['new']:
+                new_items = [f"🆕 {r['name']}" for r in records['new']]
+                day_text.extend(new_items)
+                
+            if records['delisted']:
+                del_items = [f"❌ {r['name']}" for r in records['delisted']]
+                day_text.extend(del_items)
+            
+            if day_text:
+                field_text = "\n".join(day_text)
+                if len(field_text) > 1024:
+                    field_text = field_text[:1021] + "..."
+                    
+                embed.add_field(
+                    name=f"📅 {date_str}",
+                    value=field_text,
+                    inline=False
+                )
+        
+        # 添加統計信息
+        total_new = sum(len(r['new']) for r in records_by_date.values())
+        total_del = sum(len(r['delisted']) for r in records_by_date.values())
+        
+        embed.add_field(
+            name="📊 統計信息",
+            value=f"期間內共有：\n🆕 {total_new} 個商品上架\n❌ {total_del} 個商品下架",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+            
+    except Exception as e:
+        error_msg = f"讀取歷史記錄時發生錯誤：{str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        await ctx.send(error_msg)
+
 @bot.command(name='commands', aliases=['command', '指令'])
 async def show_commands(ctx):
     """顯示所有可用的指令"""
@@ -652,6 +733,11 @@ async def show_commands(ctx):
     embed.add_field(
         name="!下架",
         value="顯示今日下架的商品",
+        inline=False
+    )
+    embed.add_field(
+        name="!歷史 [天數]",
+        value="顯示指定天數內的商品變更記錄（預設7天，最多30天）",
         inline=False
     )
     embed.add_field(
