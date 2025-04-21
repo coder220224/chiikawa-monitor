@@ -85,6 +85,15 @@ class ChiikawaMonitor:
         """獲取所有商品信息"""
         try:
             print("開始獲取所有商品數據...")
+            print(f"使用的基礎 URL: {self.base_url}")
+            
+            # 測試基本連接
+            try:
+                test_response = self.session.get(self.base_url, timeout=30)
+                print(f"基礎 URL 測試結果：{test_response.status_code}")
+            except Exception as e:
+                print(f"基礎 URL 測試失敗：{str(e)}")
+            
             total_products = 0
             page = 1
             new_products_data = []  # 存儲新獲取的商品資料
