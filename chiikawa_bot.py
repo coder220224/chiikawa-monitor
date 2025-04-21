@@ -12,6 +12,8 @@ from aiohttp import web
 import socket
 import ssl
 import traceback
+import json
+import signal
 
 # 設置日誌
 logging.basicConfig(
@@ -22,6 +24,63 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# 進程鎖文件路徑
+LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
+
+def check_running():
+    """檢查是否已有實例在運行"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            with open(LOCK_FILE, 'r') as f:
+                data = json.load(f)
+                pid = data.get('pid')
+                start_time = data.get('start_time')
+                
+                # 檢查進程是否存在
+                try:
+                    os.kill(pid, 0)
+                    logger.warning(f"檢測到另一個 Bot 實例正在運行 (PID: {pid}, 啟動時間: {start_time})")
+                    return True
+                except OSError:
+                    logger.info("發現過期的鎖文件，將刪除")
+                    os.remove(LOCK_FILE)
+        return False
+    except Exception as e:
+        logger.error(f"檢查運行狀態時發生錯誤：{str(e)}")
+        return False
+
+def create_lock():
+    """創建進程鎖文件"""
+    try:
+        data = {
+            'pid': os.getpid(),
+            'start_time': datetime.now().isoformat()
+        }
+        with open(LOCK_FILE, 'w') as f:
+            json.dump(data, f)
+        logger.info(f"已創建進程鎖文件 (PID: {os.getpid()})")
+    except Exception as e:
+        logger.error(f"創建進程鎖文件時發生錯誤：{str(e)}")
+
+def remove_lock():
+    """移除進程鎖文件"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+            logger.info("已移除進程鎖文件")
+    except Exception as e:
+        logger.error(f"移除進程鎖文件時發生錯誤：{str(e)}")
+
+def signal_handler(signum, frame):
+    """處理進程終止信號"""
+    logger.info(f"收到信號 {signum}，準備關閉 Bot...")
+    remove_lock()
+    sys.exit(0)
+
+# 註冊信號處理器
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 if not os.path.exists(WORK_DIR):
     os.makedirs(WORK_DIR)
@@ -126,6 +185,10 @@ class ProxyBot(commands.Bot):
                     await self.web_server_task
                 except asyncio.CancelledError:
                     pass
+            
+            # 移除進程鎖
+            remove_lock()
+            
             await super().close()
         except Exception as e:
             logger.error(f"關閉時發生錯誤：{str(e)}")
@@ -651,7 +714,19 @@ async def setup_webserver():
 # 運行 Bot
 if __name__ == "__main__":
     try:
+        # 檢查是否已有實例在運行
+        if check_running():
+            logger.error("另一個 Bot 實例已在運行，退出程序")
+            sys.exit(1)
+            
+        # 創建進程鎖
+        create_lock()
+        
+        # 運行 Bot
         bot.run(TOKEN)
     except Exception as e:
-        logging.error(f"Bot crashed: {str(e)}")
-        print(f"Error: {str(e)}") 
+        logger.error(f"Bot crashed: {str(e)}")
+        logger.error(traceback.format_exc())
+    finally:
+        # 確保在任何情況下都移除進程鎖
+        remove_lock() 
