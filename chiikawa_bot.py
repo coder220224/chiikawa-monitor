@@ -10,6 +10,8 @@ import sys
 from config import TOKEN, CHANNEL_ID, WORK_DIR
 from aiohttp import web
 import socket
+import ssl
+import traceback
 
 if not os.path.exists(WORK_DIR):
     os.makedirs(WORK_DIR)
@@ -29,9 +31,9 @@ class ProxyBot(commands.Bot):
         self.port = int(os.getenv('PORT', 8080))
 
     async def setup_hook(self):
-        # 創建連接器，使用 SSL 驗證
+        # 創建連接器，禁用 SSL 驗證
         self.connector = aiohttp.TCPConnector(
-            ssl=True,  # 改為 True
+            ssl=False,  # 禁用 SSL 驗證
             force_close=True,
             limit=None
         )
@@ -93,6 +95,7 @@ async def check_updates(channel):
             print(f"成功獲取現有商品數據：{len(old_products)} 個")
         except Exception as e:
             print(f"獲取現有商品數據失敗：{str(e)}")
+            print(f"錯誤詳情：", traceback.format_exc())
             await channel.send(f"錯誤：無法獲取現有商品數據 - {str(e)}")
             return
         
@@ -102,6 +105,7 @@ async def check_updates(channel):
             new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
             if not new_products_data:
                 print("獲取新商品數據失敗：返回空列表")
+                print("請檢查 fetch_products 函數的執行情況")
                 await channel.send("錯誤：無法獲取新商品數據")
                 return
                 
@@ -109,6 +113,7 @@ async def check_updates(channel):
             print(f"成功獲取新商品數據：{len(new_products)} 個")
         except Exception as e:
             print(f"獲取新商品數據時發生錯誤：{str(e)}")
+            print(f"錯誤詳情：", traceback.format_exc())
             await channel.send(f"錯誤：獲取新商品數據失敗 - {str(e)}")
             return
             
@@ -206,8 +211,7 @@ async def check_updates(channel):
             
     except Exception as e:
         print(f"檢查更新時發生錯誤: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        print(f"錯誤詳情：", traceback.format_exc())
 
 @bot.event
 async def on_ready():
