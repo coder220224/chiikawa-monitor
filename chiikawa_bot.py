@@ -388,6 +388,82 @@ async def check_product_count(ctx):
         logger.error(f"檢查失敗：{str(e)}")
         logger.error(traceback.format_exc())
 
+@bot.command(name='資料庫')
+async def check_database(ctx):
+    """檢查資料庫狀態"""
+    try:
+        await ctx.send("正在檢查資料庫狀態...")
+        
+        # 檢查 MongoDB 連接
+        try:
+            monitor.client.admin.command('ping')
+            connection_status = "✅ 已連接"
+        except Exception as e:
+            connection_status = f"❌ 連接失敗: {str(e)}"
+        
+        # 獲取資料庫信息
+        products_count = len(monitor.get_all_products())
+        history_count = monitor.history.count_documents({})
+        
+        # 獲取最近的歷史記錄
+        recent_history = list(monitor.history.find().sort('date', -1).limit(3))
+        
+        # 創建嵌入消息
+        embed = discord.Embed(
+            title="📊 MongoDB 資料庫狀態",
+            description=f"MongoDB URI: {MONGODB_URI.replace(MONGODB_URI.split('@')[0], '***')}",
+            color=0x00ff00
+        )
+        
+        # 添加連接狀態
+        embed.add_field(
+            name="連接狀態",
+            value=connection_status,
+            inline=False
+        )
+        
+        # 添加數據統計
+        embed.add_field(
+            name="商品數據",
+            value=f"📦 {products_count} 個商品記錄",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="歷史記錄",
+            value=f"📝 {history_count} 條歷史記錄",
+            inline=True
+        )
+        
+        # 添加最近的歷史記錄
+        if recent_history:
+            history_text = ""
+            for record in recent_history:
+                date = record['date'].strftime('%Y-%m-%d %H:%M:%S')
+                type_text = "🆕 新增" if record['type'] == 'new' else "❌ 下架"
+                history_text += f"{type_text} {record['name']} ({date})\n"
+            
+            embed.add_field(
+                name="最近的記錄",
+                value=history_text or "無記錄",
+                inline=False
+            )
+        
+        # 添加資料庫操作建議
+        embed.add_field(
+            name="💡 操作建議",
+            value="• 使用 `!start` 更新商品資料\n• 使用 `!檢查` 驗證資料同步狀態\n• 使用 `!上架` 和 `!下架` 查看商品變化",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        error_msg = f"檢查資料庫時發生錯誤：{str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        await ctx.send(error_msg)
+
 @bot.command(name='commands', aliases=['command', '指令'])
 async def show_commands(ctx):
     """顯示所有可用的指令"""
@@ -415,6 +491,11 @@ async def show_commands(ctx):
     embed.add_field(
         name="!檢查",
         value="檢查資料庫和網站的商品數量是否一致",
+        inline=False
+    )
+    embed.add_field(
+        name="!資料庫",
+        value="檢查 MongoDB 資料庫的連接狀態和數據統計",
         inline=False
     )
     embed.add_field(
