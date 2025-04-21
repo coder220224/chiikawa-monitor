@@ -58,8 +58,11 @@ class ChiikawaMonitor:
             "Sec-Fetch-Site": "same-origin",
             "X-Requested-With": "XMLHttpRequest"
         }
+        
+        # 創建 Session 並設置 SSL 驗證
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        self.session.verify = certifi.where()  # 使用 certifi 的證書
 
     def update_excel(self):
         """更新 Excel 文件"""
