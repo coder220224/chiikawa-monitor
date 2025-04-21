@@ -10,6 +10,7 @@ import json
 import pandas as pd
 from pymongo import MongoClient
 from config import MONGODB_URI
+import certifi
 
 class ChiikawaMonitor:
     def __init__(self):
@@ -19,14 +20,13 @@ class ChiikawaMonitor:
         
         # MongoDB 設置
         try:
-            # 修改連接選項
+            # 簡化連接選項
             self.client = MongoClient(
                 MONGODB_URI,
                 serverSelectionTimeoutMS=30000,
                 connectTimeoutMS=30000,
-                retryWrites=True,
                 tls=True,
-                tlsAllowInvalidCertificates=True  # 只保留這一個 TLS 選項
+                tlsCAFile=certifi.where()  # 使用 certifi 提供的證書
             )
             
             # 測試連接
