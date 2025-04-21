@@ -10,7 +10,6 @@ import json
 import pandas as pd
 from pymongo import MongoClient
 from config import MONGODB_URI
-import certifi
 
 class ChiikawaMonitor:
     def __init__(self):
@@ -25,8 +24,7 @@ class ChiikawaMonitor:
                 MONGODB_URI,
                 serverSelectionTimeoutMS=30000,
                 connectTimeoutMS=30000,
-                tls=True,
-                tlsCAFile=certifi.where()  # 使用 certifi 提供的證書
+                tls=True  # 使用系統默認的 SSL 證書
             )
             
             # 測試連接
@@ -62,7 +60,7 @@ class ChiikawaMonitor:
         # 創建 Session 並設置 SSL 驗證
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        self.session.verify = certifi.where()  # 使用 certifi 的證書
+        self.session.verify = True  # 使用系統默認的 SSL 證書
 
     def update_excel(self):
         """更新 Excel 文件"""
@@ -93,7 +91,7 @@ class ChiikawaMonitor:
             # 測試基本連接
             try:
                 print("\n1. 測試基礎連接...")
-                test_response = self.session.get(self.base_url, timeout=30, verify=False)
+                test_response = self.session.get(self.base_url, timeout=30)
                 print(f"基礎連接狀態碼: {test_response.status_code}")
                 print(f"響應頭: {dict(test_response.headers)}")
                 
@@ -117,8 +115,7 @@ class ChiikawaMonitor:
                 api_response = self.session.get(
                     api_url, 
                     params={'page': 1, 'limit': 1}, 
-                    timeout=30,
-                    verify=False
+                    timeout=30
                 )
                 print(f"API 響應狀態碼: {api_response.status_code}")
                 print(f"API 響應頭: {dict(api_response.headers)}")
@@ -160,8 +157,7 @@ class ChiikawaMonitor:
                     response = self.session.get(
                         api_url,
                         params={'page': page, 'limit': 250},
-                        timeout=30,
-                        verify=False
+                        timeout=30
                     )
                     
                     if response.status_code != 200:
