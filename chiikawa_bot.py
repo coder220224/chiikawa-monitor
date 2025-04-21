@@ -423,7 +423,37 @@ async def check_product_count(ctx):
         api_count = len(new_products)
         
         # 從網頁直接獲取商品數量
-        web_count = await bot.loop.run_in_executor(None, monitor.get_total_products_from_web)
+        web_count = None
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                }
+                
+                url = f"{monitor.base_url}/zh-hant/collections/all"
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        
+                        # 嘗試從不同位置獲取商品數量
+                        # 方法1：從商品計數器獲取
+                        if '"collection-product-count"' in html:
+                            start = html.find('"collection-product-count"')
+                            if start != -1:
+                                end = html.find('</span>', start)
+                                if end != -1:
+                                    count_text = html[start:end]
+                                    import re
+                                    if match := re.search(r'\d+', count_text):
+                                        web_count = int(match.group())
+                        
+                        # 方法2：計算商品卡片數量
+                        if web_count is None and 'product-card' in html:
+                            web_count = html.count('product-card')
+        except Exception as e:
+            logger.error(f"從網站獲取商品數量失敗：{str(e)}")
         
         # 創建嵌入消息
         embed = discord.Embed(
@@ -432,6 +462,7 @@ async def check_product_count(ctx):
             color=0x00ff00
         )
         
+        # 添加各來源的商品數量
         embed.add_field(
             name="資料庫商品數量",
             value=f"📚 {db_count} 個商品",
@@ -440,37 +471,28 @@ async def check_product_count(ctx):
         
         embed.add_field(
             name="API 獲取數量",
-            value=f"🌐 {api_count} 個商品",
+            value=f"📡 {api_count} 個商品",
             inline=True
         )
         
         if web_count is not None:
             embed.add_field(
-                name="網頁顯示數量",
+                name="網站顯示數量",
                 value=f"🔖 {web_count} 個商品",
                 inline=True
             )
         
         # 檢查差異
-        has_difference = False
         differences = []
-        
-        if api_count != db_count:
-            diff = abs(api_count - db_count)
-            differences.append(f"API 與資料庫差異：{diff} 個商品")
-            has_difference = True
-            
         if web_count is not None:
             if web_count != api_count:
-                diff = abs(web_count - api_count)
-                differences.append(f"網頁與 API 差異：{diff} 個商品")
-                has_difference = True
+                differences.append(f"• 網站與 API 差異：{abs(web_count - api_count)} 個商品")
             if web_count != db_count:
-                diff = abs(web_count - db_count)
-                differences.append(f"網頁與資料庫差異：{diff} 個商品")
-                has_difference = True
+                differences.append(f"• 網站與資料庫差異：{abs(web_count - db_count)} 個商品")
+        if api_count != db_count:
+            differences.append(f"• API 與資料庫差異：{abs(api_count - db_count)} 個商品")
         
-        if has_difference:
+        if differences:
             embed.add_field(
                 name="⚠️ 發現差異",
                 value="\n".join(differences) + "\n建議執行 !start 更新資料",
@@ -483,7 +505,7 @@ async def check_product_count(ctx):
                 inline=False
             )
         
-        # 添加商品列表頁面連結
+        # 添加商品列表連結
         embed.add_field(
             name="🔗 商品列表",
             value=f"[點擊查看網站商品列表]({monitor.base_url}/zh-hant/collections/all)",
@@ -742,7 +764,7 @@ async def show_commands(ctx):
     )
     embed.add_field(
         name="!檢查",
-        value="檢查資料庫和網站的商品數量是否一致",
+        value="檢查並比較網站、API 和資料庫的商品數量",
         inline=False
     )
     embed.add_field(
