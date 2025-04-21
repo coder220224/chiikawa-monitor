@@ -10,6 +10,14 @@ import json
 import pandas as pd
 from pymongo import MongoClient
 from config import MONGODB_URI
+import urllib3
+import requests.packages.urllib3.util.ssl_
+
+# 禁用警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 設置 SSL 上下文
+requests.packages.urllib3.util.ssl_.DEFAULT_CIPHERS += ':HIGH:!DH:!aNULL'
 
 class ChiikawaMonitor:
     def __init__(self):
@@ -19,12 +27,11 @@ class ChiikawaMonitor:
         
         # MongoDB 設置
         try:
-            # 簡化連接選項
             self.client = MongoClient(
                 MONGODB_URI,
                 serverSelectionTimeoutMS=30000,
                 connectTimeoutMS=30000,
-                tls=True  # 使用系統默認的 SSL 證書
+                tls=True
             )
             
             # 測試連接
@@ -60,7 +67,7 @@ class ChiikawaMonitor:
         # 創建 Session 並設置 SSL 驗證
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        self.session.verify = True  # 使用系統默認的 SSL 證書
+        self.session.verify = False  # 在這種情況下，我們選擇禁用驗證，但已經禁用了警告
 
     def update_excel(self):
         """更新 Excel 文件"""
