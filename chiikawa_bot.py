@@ -615,17 +615,38 @@ async def show_commands(ctx):
     await ctx.send(embed=embed)
 
 async def healthcheck(request):
-    return web.Response(text="Bot is running!")
+    """健康檢查端點"""
+    try:
+        # 檢查 MongoDB 連接
+        monitor.client.admin.command('ping')
+        mongodb_status = True
+    except Exception as e:
+        mongodb_status = False
+        logger.error(f"健康檢查：MongoDB 連接失敗 - {str(e)}")
+
+    status_data = {
+        "status": "healthy" if mongodb_status else "degraded",
+        "timestamp": datetime.now().isoformat(),
+        "mongodb": mongodb_status,
+        "bot": bot.is_ready()
+    }
+
+    # 記錄健康檢查請求
+    logger.info(f"健康檢查請求：{status_data}")
+    
+    return web.json_response(status_data)
 
 async def setup_webserver():
     app = web.Application()
     app.router.add_get('/', healthcheck)
+    app.router.add_get('/health', healthcheck)  # 添加 /health 端點
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv('PORT', 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Web server started on port {port}")
+    logger.info(f"Web 服務器已啟動，端口：{port}")
+    logger.info("健康檢查端點已配置：/ 和 /health")
 
 # 運行 Bot
 if __name__ == "__main__":
