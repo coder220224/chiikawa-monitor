@@ -13,8 +13,19 @@ import socket
 import ssl
 import traceback
 
+# 設置日誌
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 if not os.path.exists(WORK_DIR):
     os.makedirs(WORK_DIR)
+    logger.info(f"創建工作目錄：{WORK_DIR}")
 
 # 設置 Bot
 intents = discord.Intents.default()
@@ -27,26 +38,28 @@ class ProxyBot(commands.Bot):
         self.session = None
         self.connector = None
         self.web_server_task = None
-        # 設置端口
         self.port = int(os.getenv('PORT', 8080))
+        logger.info(f"初始化 Bot，端口：{self.port}")
 
     async def setup_hook(self):
-        # 創建連接器，禁用 SSL 驗證
-        self.connector = aiohttp.TCPConnector(
-            ssl=False,  # 禁用 SSL 驗證
-            force_close=True,
-            limit=None
-        )
-        
-        # 創建會話
-        self.session = aiohttp.ClientSession(
-            connector=self.connector
-        )
-        print("會話設置完成")
-        
-        # 啟動 web 服務器
-        self.web_server_task = self.loop.create_task(setup_webserver())
-        print("Web 服務器啟動中...")
+        try:
+            self.connector = aiohttp.TCPConnector(
+                ssl=False,
+                force_close=True,
+                limit=None
+            )
+            logger.info("已創建 aiohttp 連接器")
+            
+            self.session = aiohttp.ClientSession(
+                connector=self.connector
+            )
+            logger.info("已創建 aiohttp 會話")
+            
+            self.web_server_task = self.loop.create_task(setup_webserver())
+            logger.info("Web 服務器啟動中...")
+        except Exception as e:
+            logger.error(f"setup_hook 錯誤：{str(e)}")
+            logger.error(traceback.format_exc())
 
     async def start(self, *args, **kwargs):
         try:
@@ -87,39 +100,44 @@ async def check_updates(channel):
     """檢查商品更新"""
     try:
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"\n=== {current_time} 開始檢查更新 ===")
+        logger.info(f"\n=== {current_time} 開始檢查更新 ===")
         
         # 獲取舊的商品資料
         try:
             old_products = {p['url']: p for p in monitor.get_all_products()}
-            print(f"成功獲取現有商品數據：{len(old_products)} 個")
+            logger.info(f"成功獲取現有商品數據：{len(old_products)} 個")
         except Exception as e:
-            print(f"獲取現有商品數據失敗：{str(e)}")
-            print(f"錯誤詳情：", traceback.format_exc())
-            await channel.send(f"錯誤：無法獲取現有商品數據 - {str(e)}")
+            error_msg = f"獲取現有商品數據失敗：{str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            await channel.send(f"錯誤：{error_msg}")
             return
         
         # 獲取新的商品資料
         try:
-            print("開始獲取新商品數據...")
+            logger.info("開始獲取新商品數據...")
             new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
+            
             if not new_products_data:
-                print("獲取新商品數據失敗：返回空列表")
-                print("請檢查 fetch_products 函數的執行情況")
-                await channel.send("錯誤：無法獲取新商品數據")
+                error_msg = "獲取新商品數據失敗：返回空列表"
+                logger.error(error_msg)
+                logger.error("請檢查 fetch_products 函數的執行情況")
+                await channel.send(f"錯誤：{error_msg}")
                 return
                 
             new_products = {p['url']: p for p in new_products_data}
-            print(f"成功獲取新商品數據：{len(new_products)} 個")
+            logger.info(f"成功獲取新商品數據：{len(new_products)} 個")
+            
         except Exception as e:
-            print(f"獲取新商品數據時發生錯誤：{str(e)}")
-            print(f"錯誤詳情：", traceback.format_exc())
-            await channel.send(f"錯誤：獲取新商品數據失敗 - {str(e)}")
+            error_msg = f"獲取新商品數據時發生錯誤：{str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            await channel.send(f"錯誤：{error_msg}")
             return
             
         # 檢查是否是第一次執行（資料庫為空）
         is_first_run = len(old_products) == 0
-        print(f"是否首次執行：{is_first_run}")
+        logger.info(f"是否首次執行：{is_first_run}")
         
         # 比對差異
         new_listings = []  # 新上架
@@ -131,14 +149,14 @@ async def check_updates(channel):
             if url not in old_products and not is_first_run:  # 如果是第一次執行，不標記為新上架
                 new_listings.append((new_product['name'], url))
                 await bot.loop.run_in_executor(None, lambda: monitor.record_history(new_product, 'new'))
-                print(f"新商品上架: {new_product['name']}")
+                logger.info(f"新商品上架: {new_product['name']}")
         
         # 檢查下架（如果不是第一次執行才檢查）
         if not is_first_run:
             for url, old_product in old_products.items():
                 if url not in new_products:
                     missing_products.append((old_product['name'], url))
-                    print(f"商品不見了，準備檢查 URL: {old_product['name']}")
+                    logger.info(f"商品不見了，準備檢查 URL: {old_product['name']}")
             
             # 只對不見的商品進行 URL 檢查
             for name, url in missing_products:
@@ -146,9 +164,9 @@ async def check_updates(channel):
                 if not is_available:
                     delisted.append((name, url))
                     await bot.loop.run_in_executor(None, lambda n=name, u=url: monitor.record_history({'name': n, 'url': u}, 'delisted'))
-                    print(f"確認商品已下架: {name}")
+                    logger.info(f"確認商品已下架: {name}")
                 else:
-                    print(f"商品 {name} 暫時不在列表中，但 URL 仍可訪問")
+                    logger.info(f"商品 {name} 暫時不在列表中，但 URL 仍可訪問")
         
         # 更新資料庫
         await bot.loop.run_in_executor(None, lambda: monitor.update_products(new_products_data))
@@ -160,7 +178,7 @@ async def check_updates(channel):
                                 color=0x00ff00)
             embed.add_field(name="初始化完成", value="已完成商品資料庫的初始化，開始監控商品變化。", inline=False)
             await channel.send(embed=embed)
-            print("資料庫初始化完成")
+            logger.info("資料庫初始化完成")
             return
         
         # 發送例行監控通知
@@ -207,11 +225,12 @@ async def check_updates(channel):
             
             await channel.send("@everyone 檢測到商品變化！", embed=alert_embed)
         
-        print(f"=== 檢查完成 ===\n")
+        logger.info(f"=== 檢查完成 ===\n")
             
     except Exception as e:
-        print(f"檢查更新時發生錯誤: {str(e)}")
-        print(f"錯誤詳情：", traceback.format_exc())
+        error_msg = f"檢查更新時發生錯誤: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
 
 @bot.event
 async def on_ready():
