@@ -1,13 +1,13 @@
 import discord
 from discord.ext import commands, tasks
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import aiohttp
 import asyncio
 from chiikawa_monitor import ChiikawaMonitor
 import logging
 import sys
-from config import TOKEN, CHANNEL_ID, WORK_DIR
+from config import TOKEN, CHANNEL_ID, WORK_DIR, MONGODB_URI
 from aiohttp import web
 import socket
 import ssl
@@ -456,7 +456,7 @@ async def check_database(ctx):
         # 創建嵌入消息
         embed = discord.Embed(
             title="📊 MongoDB 資料庫狀態",
-            description=f"MongoDB URI: {MONGODB_URI.replace(MONGODB_URI.split('@')[0], '***')}",
+            description=f"MongoDB 連接狀態",
             color=0x00ff00
         )
         
@@ -551,7 +551,7 @@ async def check_status(ctx):
         )
 
         # 運行時間信息
-        bot_start_time = bot.last_mongodb_check - datetime.timedelta(minutes=5) if bot.last_mongodb_check else datetime.now()
+        bot_start_time = bot.last_mongodb_check - timedelta(minutes=5) if bot.last_mongodb_check else datetime.now()
         uptime = datetime.now() - bot_start_time
         embed.add_field(
             name="運行時間",
