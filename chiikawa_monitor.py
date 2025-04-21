@@ -17,15 +17,23 @@ class ChiikawaMonitor:
         self.work_dir = os.path.dirname(os.path.abspath(__file__))
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
-        # MongoDB 連接
-        self.client = MongoClient(MONGODB_URI)
+        # MongoDB 設置
+        self.client = MongoClient(MONGODB_URI, tlsAllowInvalidCertificates=True)
         self.db = self.client['chiikawa']
         self.products = self.db['products']
         self.history = self.db['history']
         
-        # 建立索引
-        self.products.create_index('url', unique=True)
-        self.history.create_index([('date', 1), ('type', 1)])
+        try:
+            # 測試連接
+            self.client.admin.command('ping')
+            print("MongoDB 連接成功！")
+            
+            # 建立索引
+            self.products.create_index('url', unique=True)
+            self.history.create_index([('date', 1), ('type', 1)])
+        except Exception as e:
+            print(f"MongoDB 連接錯誤: {str(e)}")
+            raise
 
         # 設置請求頭
         self.headers = {
