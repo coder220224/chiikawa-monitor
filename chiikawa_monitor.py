@@ -18,19 +18,31 @@ class ChiikawaMonitor:
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
         # MongoDB 設置
-        self.client = MongoClient(MONGODB_URI, tlsAllowInvalidCertificates=True)
-        self.db = self.client['chiikawa']
-        self.products = self.db['products']
-        self.history = self.db['history']
-        
         try:
+            # 修改連接選項
+            self.client = MongoClient(
+                MONGODB_URI,
+                tlsAllowInvalidCertificates=True,
+                serverSelectionTimeoutMS=5000,  # 增加超時時間
+                connectTimeoutMS=5000,          # 增加超時時間
+                retryWrites=True,                # 改為 True
+                tls=True,
+                tlsInsecure=True,
+                directConnection=True            # 添加這個
+            )
+            
             # 測試連接
             self.client.admin.command('ping')
             print("MongoDB 連接成功！")
             
+            self.db = self.client['chiikawa']
+            self.products = self.db['products']
+            self.history = self.db['history']
+            
             # 建立索引
             self.products.create_index('url', unique=True)
             self.history.create_index([('date', 1), ('type', 1)])
+            
         except Exception as e:
             print(f"MongoDB 連接錯誤: {str(e)}")
             raise
