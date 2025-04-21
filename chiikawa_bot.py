@@ -41,6 +41,7 @@ class ProxyBot(commands.Bot):
         self.port = int(os.getenv('PORT', 8080))
         self.last_mongodb_check = None
         self.mongodb_status = False
+        self.start_time = datetime.now()  # 添加啟動時間
         logger.info(f"初始化 Bot，端口：{self.port}")
 
     async def setup_hook(self):
@@ -551,8 +552,7 @@ async def check_status(ctx):
         )
 
         # 運行時間信息
-        bot_start_time = bot.last_mongodb_check - timedelta(minutes=5) if bot.last_mongodb_check else datetime.now()
-        uptime = datetime.now() - bot_start_time
+        uptime = datetime.now() - bot.start_time
         embed.add_field(
             name="運行時間",
             value=f"⏱️ {uptime.days} 天 {uptime.seconds//3600} 小時 {(uptime.seconds//60)%60} 分鐘",
