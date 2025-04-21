@@ -12,6 +12,18 @@ from pymongo import MongoClient
 from config import MONGODB_URI
 import urllib3
 import requests.packages.urllib3.util.ssl_
+import sys
+import traceback
+
+# 設置日誌
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # 禁用警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,7 +48,7 @@ class ChiikawaMonitor:
             
             # 測試連接
             self.client.admin.command('ping')
-            print("MongoDB 連接成功！")
+            logger.info("MongoDB 連接成功！")
             
             self.db = self.client['chiikawa']
             self.products = self.db['products']
@@ -47,7 +59,8 @@ class ChiikawaMonitor:
             self.history.create_index([('date', 1), ('type', 1)])
             
         except Exception as e:
-            print(f"MongoDB 連接錯誤: {str(e)}")
+            logger.error(f"MongoDB 連接錯誤: {str(e)}")
+            logger.error(traceback.format_exc())
             raise
 
         # 設置請求頭
@@ -82,77 +95,79 @@ class ChiikawaMonitor:
             # 保存到 Excel
             df = pd.DataFrame(products)
             df.to_excel(self.excel_path, index=False, engine='openpyxl')
-            print(f"已更新 Excel 文件：{self.excel_path}")
+            logger.info(f"已更新 Excel 文件：{self.excel_path}")
             
             return True
         except Exception as e:
-            print(f"更新 Excel 時發生錯誤：{str(e)}")
+            logger.error(f"更新 Excel 時發生錯誤：{str(e)}")
             return False
 
     def fetch_products(self):
         """獲取所有商品信息"""
         try:
-            print("\n=== 開始獲取商品數據 ===")
-            print(f"基礎 URL: {self.base_url}")
+            logger.info("\n=== 開始獲取商品數據 ===")
+            logger.info(f"基礎 URL: {self.base_url}")
             
             # 測試基本連接
             try:
-                print("\n1. 測試基礎連接...")
+                logger.info("\n1. 測試基礎連接...")
                 test_response = self.session.get(self.base_url, timeout=30)
-                print(f"基礎連接狀態碼: {test_response.status_code}")
-                print(f"響應頭: {dict(test_response.headers)}")
+                logger.info(f"基礎連接狀態碼: {test_response.status_code}")
+                logger.info(f"響應頭: {dict(test_response.headers)}")
                 
                 if test_response.status_code != 200:
-                    print(f"警告：基礎連接返回非 200 狀態碼")
-                    print(f"響應內容: {test_response.text[:500]}")
+                    logger.error(f"警告：基礎連接返回非 200 狀態碼")
+                    logger.error(f"響應內容: {test_response.text[:500]}")
                     return []
                     
             except requests.exceptions.RequestException as e:
-                print(f"基礎連接測試失敗: {str(e)}")
-                print(f"請求標頭: {self.headers}")
+                logger.error(f"基礎連接測試失敗: {str(e)}")
+                logger.error(f"請求標頭: {self.headers}")
+                logger.error(traceback.format_exc())
                 return []
             
             # 測試 API 端點
-            print("\n2. 測試商品 API...")
+            logger.info("\n2. 測試商品 API...")
             api_url = f"{self.base_url}/zh-hant/products.json"
-            print(f"API URL: {api_url}")
+            logger.info(f"API URL: {api_url}")
             
             try:
-                print("發送 API 請求...")
+                logger.info("發送 API 請求...")
                 api_response = self.session.get(
                     api_url, 
                     params={'page': 1, 'limit': 1}, 
                     timeout=30
                 )
-                print(f"API 響應狀態碼: {api_response.status_code}")
-                print(f"API 響應頭: {dict(api_response.headers)}")
+                logger.info(f"API 響應狀態碼: {api_response.status_code}")
+                logger.info(f"API 響應頭: {dict(api_response.headers)}")
                 
                 if api_response.status_code == 200:
                     try:
                         data = api_response.json()
-                        print("成功解析 JSON 響應")
-                        print(f"響應數據預覽: {str(data)[:200]}")
+                        logger.info("成功解析 JSON 響應")
+                        logger.info(f"響應數據預覽: {str(data)[:200]}")
                         
                         if 'products' not in data:
-                            print("錯誤：響應中沒有 products 字段")
+                            logger.error("錯誤：響應中沒有 products 字段")
                             return []
                             
                     except json.JSONDecodeError as e:
-                        print(f"JSON 解析失敗: {str(e)}")
-                        print(f"原始響應內容: {api_response.text[:500]}")
+                        logger.error(f"JSON 解析失敗: {str(e)}")
+                        logger.error(f"原始響應內容: {api_response.text[:500]}")
                         return []
                 else:
-                    print(f"API 請求失敗，狀態碼: {api_response.status_code}")
-                    print(f"錯誤響應: {api_response.text[:500]}")
+                    logger.error(f"API 請求失敗，狀態碼: {api_response.status_code}")
+                    logger.error(f"錯誤響應: {api_response.text[:500]}")
                     return []
                     
             except requests.exceptions.RequestException as e:
-                print(f"API 請求失敗: {str(e)}")
-                print(f"請求標頭: {self.headers}")
+                logger.error(f"API 請求失敗: {str(e)}")
+                logger.error(f"請求標頭: {self.headers}")
+                logger.error(traceback.format_exc())
                 return []
                 
             # 開始獲取所有商品
-            print("\n3. 開始獲取完整商品列表...")
+            logger.info("\n3. 開始獲取完整商品列表...")
             total_products = 0
             page = 1
             new_products_data = []
@@ -160,7 +175,7 @@ class ChiikawaMonitor:
             
             while True:
                 try:
-                    print(f"\n獲取第 {page} 頁...")
+                    logger.info(f"\n獲取第 {page} 頁...")
                     response = self.session.get(
                         api_url,
                         params={'page': page, 'limit': 250},
@@ -168,25 +183,25 @@ class ChiikawaMonitor:
                     )
                     
                     if response.status_code != 200:
-                        print(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
-                        print(f"錯誤響應: {response.text[:200]}")
+                        logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
+                        logger.error(f"錯誤響應: {response.text[:200]}")
                         break
                         
                     try:
                         data = response.json()
                     except json.JSONDecodeError as e:
-                        print(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
-                        print(f"原始響應: {response.text[:200]}")
+                        logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
+                        logger.error(f"原始響應: {response.text[:200]}")
                         break
                         
                     if not isinstance(data, dict) or 'products' not in data:
-                        print(f"第 {page} 頁數據格式錯誤")
-                        print(f"響應數據: {str(data)[:200]}")
+                        logger.error(f"第 {page} 頁數據格式錯誤")
+                        logger.error(f"響應數據: {str(data)[:200]}")
                         break
                         
                     products = data['products']
                     if not products:
-                        print("沒有更多商品")
+                        logger.info("沒有更多商品")
                         break
                         
                     page_count = 0
@@ -220,10 +235,10 @@ class ChiikawaMonitor:
                             page_count += 1
                             
                         except Exception as e:
-                            print(f"處理商品時出錯: {str(e)}")
+                            logger.error(f"處理商品時出錯: {str(e)}")
                             continue
                             
-                    print(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
+                    logger.info(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
                     if page_count == 0:
                         break
                         
@@ -231,17 +246,16 @@ class ChiikawaMonitor:
                     time.sleep(1)
                     
                 except Exception as e:
-                    print(f"處理第 {page} 頁時出錯: {str(e)}")
+                    logger.error(f"處理第 {page} 頁時出錯: {str(e)}")
                     break
                 
-            print(f"\n=== 商品獲取完成 ===")
-            print(f"總共獲取: {total_products} 個商品")
+            logger.info(f"\n=== 商品獲取完成 ===")
+            logger.info(f"總共獲取: {total_products} 個商品")
             return new_products_data
             
         except Exception as e:
-            print(f"商品獲取過程中發生錯誤: {str(e)}")
-            import traceback
-            print(f"錯誤詳情:\n{traceback.format_exc()}")
+            logger.error(f"商品獲取過程中發生錯誤: {str(e)}")
+            logger.error(traceback.format_exc())
             return []
 
     def update_products(self, products_data):
@@ -255,7 +269,7 @@ class ChiikawaMonitor:
                 self.products.insert_many(products_data)
             return True
         except Exception as e:
-            print(f"更新數據庫時發生錯誤：{str(e)}")
+            logger.error(f"更新數據庫時發生錯誤：{str(e)}")
             return False
 
     def get_all_products(self):
@@ -275,7 +289,7 @@ class ChiikawaMonitor:
             self.history.insert_one(history_data)
             return True
         except Exception as e:
-            print(f"記錄歷史時發生錯誤：{str(e)}")
+            logger.error(f"記錄歷史時發生錯誤：{str(e)}")
             return False
 
     def get_today_history(self, type_):
@@ -307,14 +321,14 @@ if __name__ == "__main__":
     # 測試代碼
     monitor = ChiikawaMonitor()
     try:
-        print("測試獲取商品...")
+        logger.info("測試獲取商品...")
         total = monitor.fetch_products()
-        print(f"共獲取到 {len(total)} 個商品")
+        logger.info(f"共獲取到 {len(total)} 個商品")
         
-        print("\n獲取所有商品...")
+        logger.info("\n獲取所有商品...")
         products = monitor.get_all_products()
         for product in products[:5]:  # 只顯示前5個
-            print(f"- {product['name']}")
+            logger.info(f"- {product['name']}")
             
     finally:
         monitor.close() 
