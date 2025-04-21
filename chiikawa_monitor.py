@@ -317,6 +317,65 @@ class ChiikawaMonitor:
         """析構函數"""
         self.close()
 
+    def get_total_products_from_web(self):
+        """從網頁直接獲取商品總數"""
+        try:
+            # 訪問商品列表頁面
+            url = f"{self.base_url}/zh-hant/collections/all"
+            logger.info(f"訪問商品列表頁面: {url}")
+            
+            response = self.session.get(url, timeout=30)
+            if response.status_code != 200:
+                logger.error(f"獲取頁面失敗，狀態碼: {response.status_code}")
+                return None
+                
+            # 使用 BeautifulSoup 解析頁面
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 尋找商品數量信息
+            # 通常在類似 "xxx 件商品" 的文字中
+            product_count_text = None
+            
+            # 方法1：從商品計數器中獲取
+            count_element = soup.find('div', {'class': 'collection-counter'})
+            if count_element:
+                product_count_text = count_element.text.strip()
+                
+            # 方法2：從商品網格中計算
+            if not product_count_text:
+                product_grid = soup.find('div', {'class': 'product-grid'})
+                if product_grid:
+                    products = product_grid.find_all('div', {'class': 'grid__item'})
+                    return len(products)
+            
+            # 方法3：從分頁信息中獲取
+            if not product_count_text:
+                pagination = soup.find('div', {'class': 'pagination'})
+                if pagination:
+                    last_page = pagination.find_all('a')[-2].text.strip()
+                    try:
+                        total_pages = int(last_page)
+                        # 假設每頁顯示24個商品（這是常見的設置）
+                        return total_pages * 24
+                    except ValueError:
+                        pass
+            
+            # 如果找到了文字形式的數量
+            if product_count_text:
+                # 提取數字
+                import re
+                numbers = re.findall(r'\d+', product_count_text)
+                if numbers:
+                    return int(numbers[0])
+            
+            logger.error("無法從網頁獲取商品總數")
+            return None
+            
+        except Exception as e:
+            logger.error(f"從網頁獲取商品總數時出錯: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+
 if __name__ == "__main__":
     # 測試代碼
     monitor = ChiikawaMonitor()
