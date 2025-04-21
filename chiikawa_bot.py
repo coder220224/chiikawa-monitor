@@ -39,6 +39,8 @@ class ProxyBot(commands.Bot):
         self.connector = None
         self.web_server_task = None
         self.port = int(os.getenv('PORT', 8080))
+        self.last_mongodb_check = None
+        self.mongodb_status = False
         logger.info(f"初始化 Bot，端口：{self.port}")
 
     async def setup_hook(self):
@@ -57,9 +59,49 @@ class ProxyBot(commands.Bot):
             
             self.web_server_task = self.loop.create_task(setup_webserver())
             logger.info("Web 服務器啟動中...")
+            
+            # 啟動心跳檢測
+            self.heartbeat.start()
+            
         except Exception as e:
             logger.error(f"setup_hook 錯誤：{str(e)}")
             logger.error(traceback.format_exc())
+
+    @tasks.loop(minutes=5)
+    async def heartbeat(self):
+        """每5分鐘檢查一次服務狀態"""
+        try:
+            channel = self.get_channel(CHANNEL_ID)
+            if not channel:
+                logger.error(f"無法獲取頻道 {CHANNEL_ID}")
+                return
+
+            # 檢查 MongoDB 連接
+            try:
+                monitor.client.admin.command('ping')
+                mongodb_ok = True
+            except Exception as e:
+                mongodb_ok = False
+                logger.error(f"MongoDB 連接失敗: {str(e)}")
+
+            # 如果狀態發生變化，發送通知
+            if self.last_mongodb_check is not None and mongodb_ok != self.mongodb_status:
+                if mongodb_ok:
+                    await channel.send("✅ MongoDB 連接已恢復")
+                else:
+                    await channel.send("⚠️ MongoDB 連接已斷開，機器人功能可能受限")
+
+            self.mongodb_status = mongodb_ok
+            self.last_mongodb_check = datetime.now()
+
+        except Exception as e:
+            logger.error(f"心跳檢測錯誤: {str(e)}")
+            logger.error(traceback.format_exc())
+
+    @heartbeat.before_loop
+    async def before_heartbeat(self):
+        """等待 Bot 準備好再開始心跳檢測"""
+        await self.wait_until_ready()
 
     async def start(self, *args, **kwargs):
         try:
@@ -70,6 +112,9 @@ class ProxyBot(commands.Bot):
 
     async def close(self):
         try:
+            # 停止心跳檢測
+            self.heartbeat.cancel()
+            
             if self.session:
                 await self.session.close()
             if self.connector:
@@ -82,7 +127,7 @@ class ProxyBot(commands.Bot):
                     pass
             await super().close()
         except Exception as e:
-            print(f"關閉時發生錯誤: {e}")
+            logger.error(f"關閉時發生錯誤：{str(e)}")
 
 bot = ProxyBot(command_prefix='!', intents=intents)
 
@@ -464,6 +509,64 @@ async def check_database(ctx):
         logger.error(traceback.format_exc())
         await ctx.send(error_msg)
 
+@bot.command(name='狀態')
+async def check_status(ctx):
+    """檢查服務狀態"""
+    try:
+        # 檢查 MongoDB 連接
+        try:
+            monitor.client.admin.command('ping')
+            mongodb_status = "✅ 正常"
+            mongodb_last_check = bot.last_mongodb_check.strftime('%Y-%m-%d %H:%M:%S') if bot.last_mongodb_check else "未知"
+        except Exception as e:
+            mongodb_status = f"❌ 異常: {str(e)}"
+            mongodb_last_check = "連接失敗"
+
+        # 創建嵌入消息
+        embed = discord.Embed(
+            title="🔧 服務狀態檢查",
+            description="檢查各項服務的運行狀態",
+            color=0x00ff00 if bot.mongodb_status else 0xff0000
+        )
+
+        # Discord Bot 狀態
+        embed.add_field(
+            name="Discord Bot",
+            value="✅ 正常運行中",
+            inline=True
+        )
+
+        # MongoDB 狀態
+        embed.add_field(
+            name="MongoDB",
+            value=f"{mongodb_status}\n最後檢查: {mongodb_last_check}",
+            inline=True
+        )
+
+        # Render 服務信息
+        embed.add_field(
+            name="Render 服務",
+            value=f"🌐 運行於端口: {bot.port}\n[查看 Render 控制台](https://dashboard.render.com/)",
+            inline=True
+        )
+
+        # 運行時間信息
+        bot_start_time = bot.last_mongodb_check - datetime.timedelta(minutes=5) if bot.last_mongodb_check else datetime.now()
+        uptime = datetime.now() - bot_start_time
+        embed.add_field(
+            name="運行時間",
+            value=f"⏱️ {uptime.days} 天 {uptime.seconds//3600} 小時 {(uptime.seconds//60)%60} 分鐘",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        error_msg = f"檢查狀態時發生錯誤：{str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        await ctx.send(error_msg)
+
 @bot.command(name='commands', aliases=['command', '指令'])
 async def show_commands(ctx):
     """顯示所有可用的指令"""
@@ -496,6 +599,11 @@ async def show_commands(ctx):
     embed.add_field(
         name="!資料庫",
         value="檢查 MongoDB 資料庫的連接狀態和數據統計",
+        inline=False
+    )
+    embed.add_field(
+        name="!狀態",
+        value="檢查所有服務的運行狀態",
         inline=False
     )
     embed.add_field(
