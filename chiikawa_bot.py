@@ -29,9 +29,9 @@ class ProxyBot(commands.Bot):
         self.port = int(os.getenv('PORT', 8080))
 
     async def setup_hook(self):
-        # 創建連接器
+        # 創建連接器，使用 SSL 驗證
         self.connector = aiohttp.TCPConnector(
-            ssl=False,
+            ssl=True,  # 改為 True
             force_close=True,
             limit=None
         )
