@@ -67,14 +67,11 @@ class ChiikawaMonitor:
         # 設置請求頭
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept": "application/json",
             "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
-            "Accept-Encoding": "gzip, deflate, br",  # 明確支持 br (Brotli) 壓縮
+            "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Referer": "https://chiikawamarket.jp/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
             "X-Requested-With": "XMLHttpRequest"
         }
         
@@ -149,22 +146,19 @@ class ChiikawaMonitor:
                 logger.info(f"API 響應狀態碼: {api_response.status_code}")
                 
                 if api_response.status_code == 200:
-                    content = self.decode_response(api_response)
-                    if content:
-                        try:
-                            data = json.loads(content)
-                            logger.info("成功解析 JSON 響應")
-                            logger.info(f"響應數據預覽: {str(data)[:200]}")
-                            
-                            if 'products' not in data:
-                                logger.error("錯誤：響應中沒有 products 字段")
-                                return []
-                                
-                        except json.JSONDecodeError as e:
-                            logger.error(f"JSON 解析失敗: {str(e)}")
+                    try:
+                        # requests 會自動處理解壓縮
+                        data = api_response.json()
+                        logger.info("成功解析 JSON 響應")
+                        logger.info(f"響應數據預覽: {str(data)[:200]}")
+                        
+                        if 'products' not in data:
+                            logger.error("錯誤：響應中沒有 products 字段")
                             return []
-                    else:
-                        logger.error("無法解碼響應內容")
+                            
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON 解析失敗: {str(e)}")
+                        logger.error(f"原始響應內容: {api_response.text[:200]}")
                         return []
                 else:
                     logger.error(f"API 請求失敗，狀態碼: {api_response.status_code}")
@@ -193,19 +187,16 @@ class ChiikawaMonitor:
                     
                     if response.status_code != 200:
                         logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
-                        logger.error(f"錯誤響應: {response.text[:200]}")
                         break
                         
                     try:
                         data = response.json()
                     except json.JSONDecodeError as e:
                         logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
-                        logger.error(f"原始響應: {response.text[:200]}")
                         break
                         
                     if not isinstance(data, dict) or 'products' not in data:
                         logger.error(f"第 {page} 頁數據格式錯誤")
-                        logger.error(f"響應數據: {str(data)[:200]}")
                         break
                         
                     products = data['products']
