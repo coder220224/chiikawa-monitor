@@ -22,13 +22,11 @@ class ChiikawaMonitor:
             # 修改連接選項
             self.client = MongoClient(
                 MONGODB_URI,
-                tlsAllowInvalidCertificates=True,
-                serverSelectionTimeoutMS=5000,  # 增加超時時間
-                connectTimeoutMS=5000,          # 增加超時時間
-                retryWrites=True,                # 改為 True
+                serverSelectionTimeoutMS=30000,
+                connectTimeoutMS=30000,
+                retryWrites=True,
                 tls=True,
-                tlsInsecure=True,
-                directConnection=True            # 添加這個
+                tlsAllowInvalidCertificates=True  # 只保留這一個 TLS 選項
             )
             
             # 測試連接
