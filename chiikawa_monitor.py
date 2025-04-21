@@ -8,6 +8,8 @@ import random
 import sqlite3
 import json
 import pandas as pd
+from pymongo import MongoClient
+from config import MONGODB_URI
 
 class ChiikawaMonitor:
     def __init__(self):
@@ -15,11 +17,15 @@ class ChiikawaMonitor:
         self.work_dir = os.path.dirname(os.path.abspath(__file__))
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
-        # SQLite 數據庫設置
-        self.db_path = os.path.join(WORK_DIR, 'chiikawa.db')
-        self.conn = sqlite3.connect(self.db_path)
-        self.init_db()
-        print("SQLite 數據庫連接成功！")
+        # MongoDB 連接
+        self.client = MongoClient(MONGODB_URI)
+        self.db = self.client['chiikawa']
+        self.products = self.db['products']
+        self.history = self.db['history']
+        
+        # 建立索引
+        self.products.create_index('url', unique=True)
+        self.history.create_index([('date', 1), ('type', 1)])
 
         # 設置請求頭
         self.headers = {
@@ -37,68 +43,18 @@ class ChiikawaMonitor:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
 
-    def init_db(self):
-        """初始化 SQLite 數據庫"""
-        c = self.conn.cursor()
-        
-        # 創建商品表（添加更多欄位）
-        c.execute('''CREATE TABLE IF NOT EXISTS products
-                    (url TEXT PRIMARY KEY,
-                     name TEXT,
-                     price INTEGER,
-                     available BOOLEAN,
-                     last_seen TIMESTAMP,
-                     description TEXT,
-                     image_url TEXT,
-                     category TEXT)''')
-        
-        # 創建歷史記錄表
-        c.execute('''CREATE TABLE IF NOT EXISTS history
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                     date TIMESTAMP,
-                     type TEXT,
-                     name TEXT,
-                     url TEXT,
-                     time TIMESTAMP)''')
-        
-        self.conn.commit()
-
     def update_excel(self):
         """更新 Excel 文件"""
         try:
             # 從數據庫獲取所有商品
-            c = self.conn.cursor()
-            c.execute('''
-                SELECT 
-                    name as '商品名稱',
-                    price as '價格',
-                    CASE 
-                        WHEN available = 1 THEN '有貨'
-                        ELSE '無貨'
-                    END as '庫存狀態',
-                    url as '商品連結',
-                    last_seen as '最後更新時間'
-                FROM products
-                ORDER BY name
-            ''')
-            df = pd.read_sql_query('''
-                SELECT 
-                    name as '商品名稱',
-                    price as '價格',
-                    CASE 
-                        WHEN available = 1 THEN '有貨'
-                        ELSE '無貨'
-                    END as '庫存狀態',
-                    url as '商品連結',
-                    last_seen as '最後更新時間'
-                FROM products
-                ORDER BY name
-            ''', self.conn)
+            products = self.get_all_products()
             
             # 格式化時間列
-            df['最後更新時間'] = pd.to_datetime(df['最後更新時間']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            for product in products:
+                product['last_seen'] = product['last_seen'].strftime('%Y-%m-%d %H:%M:%S')
             
             # 保存到 Excel
+            df = pd.DataFrame(products)
             df.to_excel(self.excel_path, index=False, engine='openpyxl')
             print(f"已更新 Excel 文件：{self.excel_path}")
             
@@ -207,20 +163,12 @@ class ChiikawaMonitor:
     def update_products(self, products_data):
         """更新數據庫中的商品資料"""
         try:
-            c = self.conn.cursor()
-            
             # 清空現有資料
-            c.execute('DELETE FROM products')
+            self.products.delete_many({})
             
             # 插入新資料
-            for product in products_data:
-                c.execute('''INSERT INTO products 
-                           (url, name, price, available, last_seen)
-                           VALUES (?, ?, ?, ?, ?)''',
-                        (product['url'], product['name'], product['price'],
-                         product['available'], product['last_seen']))
-            
-            self.conn.commit()
+            if products_data:
+                self.products.insert_many(products_data)
             return True
         except Exception as e:
             print(f"更新數據庫時發生錯誤：{str(e)}")
@@ -228,29 +176,19 @@ class ChiikawaMonitor:
 
     def get_all_products(self):
         """獲取所有商品"""
-        c = self.conn.cursor()
-        c.execute('SELECT * FROM products')
-        products = []
-        for row in c.fetchall():
-            products.append({
-                'url': row[0],
-                'name': row[1],
-                'price': row[2],
-                'available': bool(row[3]),
-                'last_seen': row[4]
-            })
-        return products
+        return list(self.products.find({}, {'_id': 0}))
 
     def record_history(self, product, type_):
-        """記錄商品歷史（上架或下架）"""
+        """記錄商品歷史"""
         try:
-            c = self.conn.cursor()
-            c.execute('''INSERT INTO history 
-                        (date, type, name, url, time)
-                        VALUES (?, ?, ?, ?, ?)''',
-                     (datetime.now(), type_, product['name'], 
-                      product['url'], datetime.now()))
-            self.conn.commit()
+            history_data = {
+                'date': datetime.now(),
+                'type': type_,
+                'name': product['name'],
+                'url': product['url'],
+                'time': datetime.now()
+            }
+            self.history.insert_one(history_data)
             return True
         except Exception as e:
             print(f"記錄歷史時發生錯誤：{str(e)}")
@@ -259,20 +197,11 @@ class ChiikawaMonitor:
     def get_today_history(self, type_):
         """獲取今日的歷史記錄"""
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        c = self.conn.cursor()
-        c.execute('''SELECT * FROM history 
-                    WHERE date >= ? AND type = ?''',
-                 (today, type_))
-        history = []
-        for row in c.fetchall():
-            history.append({
-                'date': row[1],
-                'type': row[2],
-                'name': row[3],
-                'url': row[4],
-                'time': row[5]
-            })
-        return history
+        query = {
+            'date': {'$gte': today},
+            'type': type_
+        }
+        return list(self.history.find(query, {'_id': 0}))
 
     def check_product_url(self, url):
         """檢查商品URL是否可訪問"""
@@ -283,7 +212,7 @@ class ChiikawaMonitor:
             return False
 
     def close(self):
-        """關閉數據庫連接（SQLite 不需要）"""
+        """關閉數據庫連接（MongoDB 不需要）"""
         pass
             
     def __del__(self):
