@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import os
 import time
@@ -15,6 +15,10 @@ import requests.packages.urllib3.util.ssl_
 import sys
 import traceback
 import brotli  # 添加 brotli 支持
+import pytz
+
+# 設定台灣時區
+TW_TIMEZONE = pytz.timezone('Asia/Taipei')
 
 # 設置日誌
 logging.basicConfig(
@@ -228,7 +232,7 @@ class ChiikawaMonitor:
                                 'name': title,
                                 'price': price,
                                 'available': available,
-                                'last_seen': datetime.now()
+                                'last_seen': datetime.now(TW_TIMEZONE)
                             })
                             
                             total_products += 1
@@ -280,11 +284,11 @@ class ChiikawaMonitor:
         """記錄商品歷史"""
         try:
             history_data = {
-                'date': datetime.now(),
+                'date': datetime.now(TW_TIMEZONE),
                 'type': type_,
                 'name': product['name'],
                 'url': product['url'],
-                'time': datetime.now()
+                'time': datetime.now(TW_TIMEZONE)
             }
             self.history.insert_one(history_data)
             return True
@@ -294,7 +298,7 @@ class ChiikawaMonitor:
 
     def get_today_history(self, type_):
         """獲取今日的歷史記錄"""
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
         query = {
             'date': {'$gte': today},
             'type': type_
