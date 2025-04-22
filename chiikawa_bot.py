@@ -14,6 +14,10 @@ import ssl
 import traceback
 import json
 import signal
+import pytz
+
+# 設定台灣時區
+TW_TIMEZONE = pytz.timezone('Asia/Taipei')
 
 # 設置日誌
 logging.basicConfig(
@@ -346,8 +350,21 @@ async def on_ready():
     logging.info(f'Bot logged in as {bot.user.name}')
     print(f'Bot logged in as {bot.user.name}')
 
+# 在 bot.py 中添加權限檢查裝飾器
+def has_role(role_id):
+    async def predicate(ctx):
+        # 檢查是否為管理員
+        if ctx.author.guild_permissions.administrator:
+            return True
+        # 檢查是否有特定身分組
+        return any(role.id == role_id for role in ctx.author.roles)
+    return commands.check(predicate)
+
+# 修改指令權限
+ADMIN_ROLE_ID = 1353266568875737128 # 請替換為實際的身分組 ID
+
 @bot.command(name='start')
-@commands.has_permissions(administrator=True)
+@has_role(ADMIN_ROLE_ID)
 async def start_monitoring(ctx):
     """執行一次商品更新檢查"""
     try:
@@ -409,6 +426,7 @@ async def delisted(ctx):
         await ctx.send(f"讀取下架記錄時發生錯誤：{str(e)}")
 
 @bot.command(name='檢查')
+@has_role(ADMIN_ROLE_ID)
 async def check_product_count(ctx):
     """檢查商品總數"""
     try:
@@ -520,6 +538,7 @@ async def check_product_count(ctx):
         logger.error(traceback.format_exc())
 
 @bot.command(name='資料庫')
+@has_role(ADMIN_ROLE_ID)
 async def check_database(ctx):
     """檢查資料庫狀態"""
     try:
@@ -735,55 +754,49 @@ async def history(ctx, days: int = 7):
 
 @bot.command(name='commands', aliases=['command', '指令'])
 async def show_commands(ctx):
-    """顯示所有可用的指令"""
+    """顯示可用的指令列表"""
+    # 檢查用戶是否為管理員或有特定身分組
+    is_admin = ctx.author.guild_permissions.administrator or any(role.id == ADMIN_ROLE_ID for role in ctx.author.roles)
+    
     embed = discord.Embed(
         title="吉伊卡哇官網監控 指令列表",
-        description="以下是所有可用的指令：",
+        description="以下是您可以使用的指令：",
         color=discord.Color.blue()
     )
     
+    # 基本指令（所有人都可以看到）
     embed.add_field(
-        name="!start",
-        value="執行一次商品更新檢查",
-        inline=False
-    )
-    embed.add_field(
-        name="!上架",
-        value="顯示今日新上架的商品",
-        inline=False
-    )
-    embed.add_field(
-        name="!下架",
-        value="顯示今日下架的商品",
-        inline=False
-    )
-    embed.add_field(
-        name="!歷史 [天數]",
-        value="顯示指定天數內的商品變更記錄（預設7天，最多30天）",
-        inline=False
-    )
-    embed.add_field(
-        name="!檢查",
-        value="檢查並比較網站、API 和資料庫的商品數量",
-        inline=False
-    )
-    embed.add_field(
-        name="!資料庫",
-        value="檢查 MongoDB 資料庫的連接狀態和數據統計",
-        inline=False
-    )
-    embed.add_field(
-        name="!狀態",
-        value="檢查所有服務的運行狀態",
-        inline=False
-    )
-    embed.add_field(
-        name="!commands",
-        value="顯示此幫助信息（別名：!command、!指令）",
+        name="基本指令",
+        value=(
+            "📦 `!上架` - 顯示今日新上架的商品\n"
+            "❌ `!下架` - 顯示今日下架的商品\n"
+            "📅 `!歷史 [天數]` - 顯示指定天數的商品變更記錄\n"
+            "❓ `!指令` - 顯示此幫助信息"
+        ),
         inline=False
     )
     
+    # 只有管理員/特定身分組才能看到的指令
+    if is_admin:
+        embed.add_field(
+            name="管理員指令",
+            value=(
+                "🔄 `!start` - 執行一次商品更新檢查\n"
+                "🔍 `!檢查` - 檢查商品數量\n"
+                "💾 `!資料庫` - 檢查資料庫狀態"
+            ),
+            inline=False
+        )
+    
     await ctx.send(embed=embed)
+
+# 錯誤處理
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ 您沒有權限使用此指令！")
+    elif isinstance(error, commands.CommandNotFound):
+        await ctx.send("❌ 無效的指令！請使用 `!指令` 查看可用的指令列表。")
 
 async def healthcheck(request):
     """健康檢查端點"""
