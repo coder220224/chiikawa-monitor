@@ -580,16 +580,14 @@ async def check_status(ctx):
         try:
             monitor.client.admin.command('ping')
             mongodb_status = "✅ 正常"
-            mongodb_last_check = bot.last_mongodb_check.astimezone(TW_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S') if bot.last_mongodb_check else "未知"
         except Exception as e:
             mongodb_status = f"❌ 異常: {str(e)}"
-            mongodb_last_check = "連接失敗"
 
         # 創建嵌入消息
         embed = discord.Embed(
             title="🔧 服務狀態檢查",
             description="檢查各項服務的運行狀態",
-            color=0x00ff00 if bot.mongodb_status else 0xff0000
+            color=0x00ff00
         )
 
         # Discord Bot 狀態
@@ -602,7 +600,7 @@ async def check_status(ctx):
         # MongoDB 狀態
         embed.add_field(
             name="MongoDB",
-            value=f"{mongodb_status}\n最後檢查: {mongodb_last_check}",
+            value=mongodb_status,
             inline=True
         )
 
