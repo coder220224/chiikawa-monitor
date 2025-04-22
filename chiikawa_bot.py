@@ -104,7 +104,7 @@ class ProxyBot(commands.Bot):
         self.port = int(os.getenv('PORT', 8080))
         self.last_mongodb_check = None
         self.mongodb_status = False
-        self.start_time = datetime.now()  # 添加啟動時間
+        self.start_time = datetime.now(TW_TIMEZONE)
         logger.info(f"初始化 Bot，端口：{self.port}")
 
     async def setup_hook(self):
@@ -156,7 +156,7 @@ class ProxyBot(commands.Bot):
                     await channel.send("⚠️ MongoDB 連接已斷開，機器人功能可能受限")
 
             self.mongodb_status = mongodb_ok
-            self.last_mongodb_check = datetime.now()
+            self.last_mongodb_check = datetime.now(TW_TIMEZONE)
 
         except Exception as e:
             logger.error(f"心跳檢測錯誤: {str(e)}")
@@ -212,7 +212,8 @@ logging.basicConfig(
 async def check_updates(channel):
     """檢查商品更新"""
     try:
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # 修改這裡使用台灣時間
+        current_time = datetime.now(TW_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
         logger.info(f"\n=== {current_time} 開始檢查更新 ===")
         
         # 獲取舊的商品資料
@@ -622,7 +623,7 @@ async def check_status(ctx):
         try:
             monitor.client.admin.command('ping')
             mongodb_status = "✅ 正常"
-            mongodb_last_check = bot.last_mongodb_check.strftime('%Y-%m-%d %H:%M:%S') if bot.last_mongodb_check else "未知"
+            mongodb_last_check = bot.last_mongodb_check.astimezone(TW_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S') if bot.last_mongodb_check else "未知"
         except Exception as e:
             mongodb_status = f"❌ 異常: {str(e)}"
             mongodb_last_check = "連接失敗"
@@ -648,15 +649,9 @@ async def check_status(ctx):
             inline=True
         )
 
-        # Render 服務信息
-        embed.add_field(
-            name="Render 服務",
-            value=f"🌐 運行於端口: {bot.port}\n[查看 Render 控制台](https://dashboard.render.com/)",
-            inline=True
-        )
-
         # 運行時間信息
-        uptime = datetime.now() - bot.start_time
+        current_time = datetime.now(TW_TIMEZONE)
+        uptime = current_time - bot.start_time.astimezone(TW_TIMEZONE)
         embed.add_field(
             name="運行時間",
             value=f"⏱️ {uptime.days} 天 {uptime.seconds//3600} 小時 {(uptime.seconds//60)%60} 分鐘",
@@ -680,7 +675,7 @@ async def history(ctx, days: int = 7):
             return
             
         # 計算起始時間
-        start_date = datetime.now() - timedelta(days=days)
+        start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
         
         # 獲取歷史記錄
         history_records = list(monitor.history.find({
@@ -771,6 +766,7 @@ async def show_commands(ctx):
             "📦 `!上架` - 顯示今日新上架的商品\n"
             "❌ `!下架` - 顯示今日下架的商品\n"
             "📅 `!歷史 [天數]` - 顯示指定天數的商品變更記錄\n"
+            "🔧 `!狀態` - 檢查服務運行狀態\n"
             "❓ `!指令` - 顯示此幫助信息"
         ),
         inline=False
