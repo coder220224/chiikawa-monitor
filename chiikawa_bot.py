@@ -7,7 +7,7 @@ import asyncio
 from chiikawa_monitor import ChiikawaMonitor
 import logging
 import sys
-from config import TOKEN, CHANNEL_ID, WORK_DIR, MONGODB_URI
+from config import TOKEN, WORK_DIR, MONGODB_URI
 from aiohttp import web
 import socket
 import ssl
@@ -124,48 +124,9 @@ class ProxyBot(commands.Bot):
             self.web_server_task = self.loop.create_task(setup_webserver())
             logger.info("Web 服務器啟動中...")
             
-            # 啟動心跳檢測
-            self.heartbeat.start()
-            
         except Exception as e:
             logger.error(f"setup_hook 錯誤：{str(e)}")
             logger.error(traceback.format_exc())
-
-    @tasks.loop(minutes=5)
-    async def heartbeat(self):
-        """每5分鐘檢查一次服務狀態"""
-        try:
-            channel = self.get_channel(CHANNEL_ID)
-            if not channel:
-                logger.error(f"無法獲取頻道 {CHANNEL_ID}")
-                return
-
-            # 檢查 MongoDB 連接
-            try:
-                monitor.client.admin.command('ping')
-                mongodb_ok = True
-            except Exception as e:
-                mongodb_ok = False
-                logger.error(f"MongoDB 連接失敗: {str(e)}")
-
-            # 如果狀態發生變化，發送通知
-            if self.last_mongodb_check is not None and mongodb_ok != self.mongodb_status:
-                if mongodb_ok:
-                    await channel.send("✅ MongoDB 連接已恢復")
-                else:
-                    await channel.send("⚠️ MongoDB 連接已斷開，機器人功能可能受限")
-
-            self.mongodb_status = mongodb_ok
-            self.last_mongodb_check = datetime.now(TW_TIMEZONE)
-
-        except Exception as e:
-            logger.error(f"心跳檢測錯誤: {str(e)}")
-            logger.error(traceback.format_exc())
-
-    @heartbeat.before_loop
-    async def before_heartbeat(self):
-        """等待 Bot 準備好再開始心跳檢測"""
-        await self.wait_until_ready()
 
     async def start(self, *args, **kwargs):
         try:
@@ -176,9 +137,6 @@ class ProxyBot(commands.Bot):
 
     async def close(self):
         try:
-            # 停止心跳檢測
-            self.heartbeat.cancel()
-            
             if self.session:
                 await self.session.close()
             if self.connector:
@@ -209,10 +167,14 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-async def check_updates(channel):
+async def check_updates(ctx):
     """檢查商品更新"""
     try:
-        # 修改這裡使用台灣時間
+        channel = ctx.channel
+        if not channel:
+            logger.error(f"無法獲取頻道")
+            return
+            
         current_time = datetime.now(TW_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')
         logger.info(f"\n=== {current_time} 開始檢查更新 ===")
         
@@ -319,7 +281,7 @@ async def check_updates(channel):
         # 發送例行通知
         await channel.send(embed=embed)
         
-        # 如果有變化，額外發送 @everyone 通知
+        # 如果有變化，在當前頻道發送通知
         if new_listings or delisted:
             alert_embed = discord.Embed(title="⚠️ 商品更新提醒", 
                                       description=f"檢查時間: {current_time}", 
@@ -337,7 +299,8 @@ async def check_updates(channel):
                     delisted_text = delisted_text[:1021] + "..."
                 alert_embed.add_field(name="下架商品", value=delisted_text, inline=False)
             
-            await channel.send("@everyone 檢測到商品變化！", embed=alert_embed)
+            # 在執行指令的頻道發送通知
+            await channel.send(embed=alert_embed)
         
         logger.info(f"=== 檢查完成 ===\n")
             
@@ -369,18 +332,12 @@ ADMIN_ROLE_ID = 1353266568875737128 # 請替換為實際的身分組 ID
 async def start_monitoring(ctx):
     """執行一次商品更新檢查"""
     try:
-        channel = bot.get_channel(CHANNEL_ID)
-        if not channel:
-            await ctx.send(f"錯誤：找不到頻道 {CHANNEL_ID}")
-            return
-            
         await ctx.send("開始檢查商品更新...")
-        await check_updates(channel)
+        await check_updates(ctx)
         await ctx.send("檢查完成！")
-        
     except Exception as e:
         await ctx.send(f"執行失敗：{str(e)}")
-        print(f"執行失敗：{str(e)}")
+        logger.error(f"執行失敗：{str(e)}")
 
 @bot.command(name='上架')
 async def new_listings(ctx):
