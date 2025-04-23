@@ -733,11 +733,11 @@ async def show_commands(ctx):
     embed.add_field(
         name="基本指令",
         value=(
-            "📦 `!上架` - 顯示今日新上架的商品\n"
+            "📦 `!上架` - 顯示今日上架的商品\n"
             "❌ `!下架` - 顯示今日下架的商品\n"
-            "📅 `!歷史 [天數]` - 顯示指定天數的商品變更記錄\n"
+            "📅 `!歷史` - 顯示7天內的商品變更記錄\n"
             "🔧 `!狀態` - 檢查服務運行狀態\n"
-            "❓ `!指令` - 顯示此幫助信息"
+            "❓ `!指令` - 顯示可用指令"
         ),
         inline=False
     )
@@ -843,26 +843,30 @@ def handle_line_message(event):
                 is_command = True
                 break
         
-        # 只處理支援的指令,忽略其他訊息
-        if is_command or is_history_command:
-            if text == '上架':
-                handle_line_new_products(event.reply_token)
-            elif text == '下架':
-                handle_line_delisted_products(event.reply_token)
-            elif text == '狀態':
-                handle_line_status(event.reply_token)
-            elif text == '指令':
-                handle_line_help(event.reply_token)
-            elif is_history_command:
-                try:
-                    days = int(text[2:]) if len(text) > 2 else 7
-                    handle_line_history(event.reply_token, days)
-                except ValueError:
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="請指定 1-30 天的範圍")
-                    )
-        # 不處理非指令訊息
+        # 如果不是支援的指令，直接返回，讓LINE平台處理
+        if not (is_command or is_history_command):
+            logger.info(f"非指令訊息，交由LINE平台處理: {text}")
+            # 直接返回，不處理該訊息
+            return
+        
+        # 處理支援的指令
+        if text == '上架':
+            handle_line_new_products(event.reply_token)
+        elif text == '下架':
+            handle_line_delisted_products(event.reply_token)
+        elif text == '狀態':
+            handle_line_status(event.reply_token)
+        elif text == '指令':
+            handle_line_help(event.reply_token)
+        elif is_history_command:
+            try:
+                days = int(text[2:]) if len(text) > 2 else 7
+                handle_line_history(event.reply_token, days)
+            except ValueError:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="請指定 1-30 天的範圍")
+                )
             
     except Exception as e:
         logger.error(f"處理 LINE 訊息時發生錯誤: {str(e)}")
@@ -1012,11 +1016,11 @@ def handle_line_help(reply_token):
     """發送 LINE 幫助信息"""
     help_text = (
         "可用指令：\n"
-        "📦 上架 - 顯示今日上架商品\n"
+        "📦 上架 - 顯示今日新上架商品\n"
         "❌ 下架 - 顯示今日下架商品\n"
         "🔧 狀態 - 檢查服務運行狀態\n"
         "📅 歷史 - 顯示7天內的變更記錄\n"
-        "❓ 指令 - 顯示此幫助信息"
+        "❓ 指令 - 顯示可用指令"
     )
     
     line_bot_api.reply_message(
