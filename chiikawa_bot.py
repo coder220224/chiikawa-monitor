@@ -823,31 +823,49 @@ async def handle_line_webhook(request):
 
 @line_handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
-    """处理 LINE 消息"""
+    """處理 LINE 訊息"""
     try:
         text = event.message.text.lower()
-        logger.info(f"收到 LINE 消息: {text}")
+        logger.info(f"收到 LINE 訊息: {text}")
         
-        if text in ['上架', '新品']:
-            handle_line_new_products(event.reply_token)
-        elif text in ['下架']:
-            handle_line_delisted_products(event.reply_token)
-        elif text in ['状态', '狀態']:
-            handle_line_status(event.reply_token)
-        elif text.startswith('历史') or text.startswith('歷史'):
-            try:
-                days = int(text[2:]) if len(text) > 2 else 7
-                handle_line_history(event.reply_token, days)
-            except ValueError:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text="請指定 1-30 天的範圍")
-                )
-        else:
-            handle_line_help(event.reply_token)
+        # 定義支援的指令列表
+        commands = ['上架', '下架', '狀態', '指令']
+        
+        # 檢查是否是歷史指令(特殊處理)
+        is_history_command = False
+        if text.startswith('歷史'):
+            is_history_command = True
+        
+        # 檢查是否是支援的指令
+        is_command = False
+        for cmd in commands:
+            if text == cmd:
+                is_command = True
+                break
+        
+        # 只處理支援的指令,忽略其他訊息
+        if is_command or is_history_command:
+            if text == '上架':
+                handle_line_new_products(event.reply_token)
+            elif text == '下架':
+                handle_line_delisted_products(event.reply_token)
+            elif text == '狀態':
+                handle_line_status(event.reply_token)
+            elif text == '指令':
+                handle_line_help(event.reply_token)
+            elif is_history_command:
+                try:
+                    days = int(text[2:]) if len(text) > 2 else 7
+                    handle_line_history(event.reply_token, days)
+                except ValueError:
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="請指定 1-30 天的範圍")
+                    )
+        # 不處理非指令訊息
             
     except Exception as e:
-        logger.error(f"处理 LINE 消息时发生错误: {str(e)}")
+        logger.error(f"處理 LINE 訊息時發生錯誤: {str(e)}")
         logger.error(traceback.format_exc())
         try:
             line_bot_api.reply_message(
@@ -858,7 +876,7 @@ def handle_line_message(event):
             pass
 
 def handle_line_new_products(reply_token):
-    """处理 LINE 上架商品请求"""
+    """處理 LINE 上架商品請求"""
     new_products = monitor.get_today_history('new')
     
     if not new_products:
@@ -868,7 +886,7 @@ def handle_line_new_products(reply_token):
         )
         return
     
-    # 创建 Flex 消息
+    # 創建 Flex 消息
     bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
     
     line_bot_api.reply_message(
@@ -877,7 +895,7 @@ def handle_line_new_products(reply_token):
     )
 
 def handle_line_delisted_products(reply_token):
-    """处理 LINE 下架商品请求"""
+    """處理 LINE 下架商品請求"""
     delisted_products = monitor.get_today_history('delisted')
     
     if not delisted_products:
@@ -887,7 +905,7 @@ def handle_line_delisted_products(reply_token):
         )
         return
     
-    # 创建 Flex 消息
+    # 創建 Flex 消息
     bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
     
     line_bot_api.reply_message(
@@ -896,15 +914,15 @@ def handle_line_delisted_products(reply_token):
     )
 
 def handle_line_status(reply_token):
-    """处理 LINE 状态请求"""
+    """處理 LINE 狀態請求"""
     try:
-        # 检查 MongoDB 连接
+        # 檢查 MongoDB 連接
         monitor.client.admin.command('ping')
         mongodb_status = "✅ 正常"
     except Exception as e:
         mongodb_status = f"❌ 異常: {str(e)}"
 
-    # 创建 Flex 消息
+    # 創建 Flex 消息
     bubble = BubbleContainer(
         body=BoxComponent(
             layout="vertical",
@@ -923,7 +941,7 @@ def handle_line_status(reply_token):
     )
 
 def handle_line_history(reply_token, days):
-    """处理 LINE 历史记录请求"""
+    """處理 LINE 歷史記錄請求"""
     if days <= 0 or days > 30:
         line_bot_api.reply_message(
             reply_token,
@@ -931,10 +949,10 @@ def handle_line_history(reply_token, days):
         )
         return
     
-    # 计算起始时间
+    # 計算起始時間
     start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
     
-    # 获取历史记录
+    # 獲取歷史記錄
     history_records = list(monitor.history.find({
         'date': {'$gte': start_date}
     }).sort('date', -1))
@@ -946,7 +964,7 @@ def handle_line_history(reply_token, days):
         )
         return
     
-    # 按日期分组
+    # 按日期分組
     records_by_date = {}
     for record in history_records:
         date_str = record['date'].strftime('%Y-%m-%d')
@@ -954,12 +972,12 @@ def handle_line_history(reply_token, days):
             records_by_date[date_str] = []
         records_by_date[date_str].append(record)
     
-    # 创建 Flex 消息
+    # 創建 Flex 消息
     contents = [
         TextComponent(text=f"近 {days} 天的變更記錄", weight="bold", size="xl")
     ]
     
-    # 添加每天的记录
+    # 添加每天的記錄
     for date_str, records in records_by_date.items():
         day_text = ""
         for record in records:
@@ -991,14 +1009,15 @@ def handle_line_history(reply_token, days):
     )
 
 def handle_line_help(reply_token):
-    """发送 LINE 帮助信息"""
+    """發送 LINE 幫助信息"""
     help_text = (
         "🛍️ 吉伊卡哇商品監控機器人\n\n"
         "可用指令：\n"
         "📦 上架 - 顯示今日新上架商品\n"
         "❌ 下架 - 顯示今日下架商品\n"
         "🔧 狀態 - 檢查服務運行狀態\n"
-        "📅 歷史 [天數] - 顯示指定天數的變更記錄"
+        "📅 歷史 [天數] - 顯示指定天數的變更記錄\n"
+        "❓ 指令 - 顯示此幫助信息"
     )
     
     line_bot_api.reply_message(
@@ -1007,7 +1026,7 @@ def handle_line_help(reply_token):
     )
 
 def create_product_flex_message(title, products, icon="🆕"):
-    """创建商品 Flex 消息"""
+    """創建商品 Flex 消息"""
     contents = [
         TextComponent(text=title, weight="bold", size="xl")
     ]
