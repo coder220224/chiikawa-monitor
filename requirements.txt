@@ -1,13 +1,13 @@
-discord.py>=2.3.2
-pymongo[srv]>=4.6.1
-certifi>=2024.2.2
-requests>=2.31.0
-beautifulsoup4>=4.12.3
-pandas>=2.2.1
-openpyxl>=3.1.2
-python-dotenv>=1.0.1
-aiohttp>=3.9.3
-urllib3<2.0.0
-brotli==1.1.0
-pytz==2024.1
-line-bot-sdk>=3.5.0
+discord.py
+pymongo[srv]
+certifi
+requests
+beautifulsoup4
+pandas
+openpyxl
+python-dotenv
+aiohttp
+urllib3<2.0.0  # 保留这个约束,因为可能某些依赖需要较低版本
+brotli
+pytz
+line-bot-sdk
