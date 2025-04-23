@@ -15,6 +15,13 @@ import traceback
 import json
 import signal
 import pytz
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    FlexSendMessage, BubbleContainer, BoxComponent,
+    TextComponent, ButtonComponent, URIAction
+)
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -28,6 +35,10 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# 从环境变量获取 LINE Bot 配置
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', '')
+LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 
 # 進程鎖文件路徑
 LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
@@ -159,6 +170,10 @@ bot = ProxyBot(command_prefix='!', intents=intents)
 
 # 初始化監控器
 monitor = ChiikawaMonitor()
+
+# 初始化 LINE Bot
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+line_handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # 添加日誌記錄
 logging.basicConfig(
@@ -775,6 +790,10 @@ async def setup_webserver():
     app = web.Application()
     app.router.add_get('/', healthcheck)
     app.router.add_get('/health', healthcheck)  # 添加 /health 端點
+    
+    # 添加 LINE Bot Webhook 处理
+    app.router.add_post('/line/webhook', handle_line_webhook)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv('PORT', 8080))
@@ -782,6 +801,241 @@ async def setup_webserver():
     await site.start()
     logger.info(f"Web 服務器已啟動，端口：{port}")
     logger.info("健康檢查端點已配置：/ 和 /health")
+    logger.info("LINE Bot Webhook 端點已配置: /line/webhook")
+
+async def handle_line_webhook(request):
+    """处理 LINE Webhook 请求"""
+    try:
+        signature = request.headers.get('X-Line-Signature', '')
+        body = await request.text()
+        
+        # 处理 webhook
+        line_handler.handle(body, signature)
+        
+        return web.Response(text='OK')
+    except InvalidSignatureError:
+        logger.error("LINE Webhook 签名无效")
+        return web.Response(status=400, text='Invalid signature')
+    except Exception as e:
+        logger.error(f"处理 LINE Webhook 时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        return web.Response(status=500, text='Internal Server Error')
+
+@line_handler.add(MessageEvent, message=TextMessage)
+def handle_line_message(event):
+    """处理 LINE 消息"""
+    try:
+        text = event.message.text.lower()
+        logger.info(f"收到 LINE 消息: {text}")
+        
+        if text in ['上架', '新品']:
+            handle_line_new_products(event.reply_token)
+        elif text in ['下架']:
+            handle_line_delisted_products(event.reply_token)
+        elif text in ['状态', '狀態']:
+            handle_line_status(event.reply_token)
+        elif text.startswith('历史') or text.startswith('歷史'):
+            try:
+                days = int(text[2:]) if len(text) > 2 else 7
+                handle_line_history(event.reply_token, days)
+            except ValueError:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="請指定 1-30 天的範圍")
+                )
+        else:
+            handle_line_help(event.reply_token)
+            
+    except Exception as e:
+        logger.error(f"处理 LINE 消息时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="處理請求時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
+
+def handle_line_new_products(reply_token):
+    """处理 LINE 上架商品请求"""
+    new_products = monitor.get_today_history('new')
+    
+    if not new_products:
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text="今天還沒有新商品上架")
+        )
+        return
+    
+    # 创建 Flex 消息
+    bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
+    
+    line_bot_api.reply_message(
+        reply_token,
+        FlexSendMessage(alt_text="今日上架商品", contents=bubble)
+    )
+
+def handle_line_delisted_products(reply_token):
+    """处理 LINE 下架商品请求"""
+    delisted_products = monitor.get_today_history('delisted')
+    
+    if not delisted_products:
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text="今天還沒有商品下架")
+        )
+        return
+    
+    # 创建 Flex 消息
+    bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
+    
+    line_bot_api.reply_message(
+        reply_token,
+        FlexSendMessage(alt_text="今日下架商品", contents=bubble)
+    )
+
+def handle_line_status(reply_token):
+    """处理 LINE 状态请求"""
+    try:
+        # 检查 MongoDB 连接
+        monitor.client.admin.command('ping')
+        mongodb_status = "✅ 正常"
+    except Exception as e:
+        mongodb_status = f"❌ 異常: {str(e)}"
+
+    # 创建 Flex 消息
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=[
+                TextComponent(text="🔧 服務狀態", weight="bold", size="xl"),
+                TextComponent(text=f"MongoDB: {mongodb_status}", margin="md"),
+                TextComponent(text="LINE Bot: ✅ 正常運行中", margin="md"),
+                TextComponent(text="Discord Bot: ✅ 正常運行中", margin="md")
+            ]
+        )
+    )
+    
+    line_bot_api.reply_message(
+        reply_token,
+        FlexSendMessage(alt_text="服務狀態", contents=bubble)
+    )
+
+def handle_line_history(reply_token, days):
+    """处理 LINE 历史记录请求"""
+    if days <= 0 or days > 30:
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text="請指定 1-30 天的範圍")
+        )
+        return
+    
+    # 计算起始时间
+    start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
+    
+    # 获取历史记录
+    history_records = list(monitor.history.find({
+        'date': {'$gte': start_date}
+    }).sort('date', -1))
+    
+    if not history_records:
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
+        )
+        return
+    
+    # 按日期分组
+    records_by_date = {}
+    for record in history_records:
+        date_str = record['date'].strftime('%Y-%m-%d')
+        if date_str not in records_by_date:
+            records_by_date[date_str] = []
+        records_by_date[date_str].append(record)
+    
+    # 创建 Flex 消息
+    contents = [
+        TextComponent(text=f"近 {days} 天的變更記錄", weight="bold", size="xl")
+    ]
+    
+    # 添加每天的记录
+    for date_str, records in records_by_date.items():
+        day_text = ""
+        for record in records:
+            icon = "🆕" if record['type'] == 'new' else "❌"
+            time_str = record['time'].strftime('%H:%M')
+            day_text += f"{icon} {record['name']} ({time_str})\n"
+        
+        contents.append(
+            BoxComponent(
+                layout="vertical",
+                margin="md",
+                contents=[
+                    TextComponent(text=f"📅 {date_str}", weight="bold"),
+                    TextComponent(text=day_text, size="sm", wrap=True)
+                ]
+            )
+        )
+    
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=contents
+        )
+    )
+    
+    line_bot_api.reply_message(
+        reply_token,
+        FlexSendMessage(alt_text=f"近 {days} 天的變更記錄", contents=bubble)
+    )
+
+def handle_line_help(reply_token):
+    """发送 LINE 帮助信息"""
+    help_text = (
+        "🛍️ 吉伊卡哇商品監控機器人\n\n"
+        "可用指令：\n"
+        "📦 上架 - 顯示今日新上架商品\n"
+        "❌ 下架 - 顯示今日下架商品\n"
+        "🔧 狀態 - 檢查服務運行狀態\n"
+        "📅 歷史 [天數] - 顯示指定天數的變更記錄"
+    )
+    
+    line_bot_api.reply_message(
+        reply_token,
+        TextSendMessage(text=help_text)
+    )
+
+def create_product_flex_message(title, products, icon="🆕"):
+    """创建商品 Flex 消息"""
+    contents = [
+        TextComponent(text=title, weight="bold", size="xl")
+    ]
+
+    for product in products:
+        time_str = product['time'].strftime('%H:%M:%S')
+        contents.append(
+            BoxComponent(
+                layout="vertical",
+                margin="md",
+                contents=[
+                    TextComponent(text=f"{icon} {product['name']}", weight="bold"),
+                    TextComponent(text=f"時間: {time_str}", size="sm", color="#999999"),
+                    ButtonComponent(
+                        style="link",
+                        height="sm",
+                        action=URIAction(label="查看商品", uri=product['url'])
+                    )
+                ]
+            )
+        )
+
+    return BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=contents
+        )
+    )
 
 # 運行 Bot
 if __name__ == "__main__":
