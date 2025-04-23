@@ -809,35 +809,10 @@ async def handle_line_webhook(request):
         signature = request.headers.get('X-Line-Signature', '')
         body = await request.text()
         
-        # 解析请求内容
-        events = json.loads(body)["events"]
-        
-        # 检查消息
-        for event in events:
-            if event["type"] == "message" and event["message"]["type"] == "text":
-                text = event["message"]["text"].lower()
-                # 检查是否为支持的指令
-                commands = ['上架', '下架', '狀態', '指令']
-                is_command = text in commands or text.startswith('歷史')
-                
-                if is_command:
-                    # 指令消息交给handler处理
-                    line_handler.handle(body, signature)
-                    logger.info(f"指令訊息，由云端程序處理: {text}")
-                else:
-                    # 非指令消息不处理，但要向LINE平台发送一个"已读"通知
-                    # 这样LINE平台就不会触发自动回复
-                    logger.info(f"非指令訊息，忽略處理: {text}")
-                    # 这里我们不做任何处理，让LINE后台的自动回复功能生效
-                    pass
-                
-                # 无论如何都返回200 OK
-                return web.Response(text='OK')
-        
-        # 处理其他类型的事件
+        # 处理 webhook
         line_handler.handle(body, signature)
-        return web.Response(text='OK')
         
+        return web.Response(text='OK')
     except InvalidSignatureError:
         logger.error("LINE Webhook 签名无效")
         return web.Response(status=400, text='Invalid signature')
@@ -851,7 +826,7 @@ def handle_line_message(event):
     """處理 LINE 訊息"""
     try:
         text = event.message.text.lower()
-        logger.info(f"處理 LINE 訊息: {text}")
+        logger.info(f"收到 LINE 訊息: {text}")
         
         # 定義支援的指令列表
         commands = ['上架', '下架', '狀態', '指令']
@@ -860,63 +835,53 @@ def handle_line_message(event):
         is_history_command = False
         if text.startswith('歷史'):
             is_history_command = True
-            
-        # 检查是否是支援的指令
-        is_command = text in commands or is_history_command
         
-        # 只處理支援的指令
-        if not is_command:
-            # 不是指令，不處理，讓LINE平台的自動回覆生效
-            logger.info(f"非指令訊息，交由LINE平台處理: {text}")
-            return
-            
-        # 獲取用戶ID
-        user_id = event.source.user_id
+        # 檢查是否是支援的指令
+        is_command = False
+        for cmd in commands:
+            if text == cmd:
+                is_command = True
+                break
         
-        # 处理指令并直接使用push_message发送，完全跳过reply_token
-        logger.info(f"處理指令: {text}")
-        
-        # 處理支援的指令
-        if text == '上架':
-            push_line_new_products(user_id)
-        elif text == '下架':
-            push_line_delisted_products(user_id)
-        elif text == '狀態':
-            push_line_status(user_id)
-        elif text == '指令':
-            push_line_help(user_id)
-        elif is_history_command:
-            try:
-                days = int(text[2:]) if len(text) > 2 else 7
-                push_line_history(user_id, days)
-            except ValueError:
-                line_bot_api.push_message(
-                    user_id,
-                    TextSendMessage(text="請指定 1-30 天的範圍")
-                )
-                
-        # 通过发送一个看不见的消息来消耗掉reply_token，阻止LINE平台的自动回复
-        # 使用一个空格而不是零宽空格，确保消息不为空
-        try:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=" ")  # 使用一个空格代替零宽空格
-            )
-        except Exception as e:
-            logger.error(f"回复空消息失败: {str(e)}")
+        # 只處理支援的指令,忽略其他訊息
+        if is_command or is_history_command:
+            if text == '上架':
+                handle_line_new_products(event.reply_token)
+            elif text == '下架':
+                handle_line_delisted_products(event.reply_token)
+            elif text == '狀態':
+                handle_line_status(event.reply_token)
+            elif text == '指令':
+                handle_line_help(event.reply_token)
+            elif is_history_command:
+                try:
+                    days = int(text[2:]) if len(text) > 2 else 7
+                    handle_line_history(event.reply_token, days)
+                except ValueError:
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="請指定 1-30 天的範圍")
+                    )
+        # 不處理非指令訊息
             
     except Exception as e:
         logger.error(f"處理 LINE 訊息時發生錯誤: {str(e)}")
         logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="處理請求時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
 
-# 新增 push message 版本的處理函數
-def push_line_new_products(user_id):
-    """處理 LINE 上架商品請求 (推送版本)"""
+def handle_line_new_products(reply_token):
+    """處理 LINE 上架商品請求"""
     new_products = monitor.get_today_history('new')
     
     if not new_products:
-        line_bot_api.push_message(
-            user_id,
+        line_bot_api.reply_message(
+            reply_token,
             TextSendMessage(text="今天還沒有新商品上架")
         )
         return
@@ -924,18 +889,18 @@ def push_line_new_products(user_id):
     # 創建 Flex 消息
     bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
     
-    line_bot_api.push_message(
-        user_id,
+    line_bot_api.reply_message(
+        reply_token,
         FlexSendMessage(alt_text="今日上架商品", contents=bubble)
     )
 
-def push_line_delisted_products(user_id):
-    """處理 LINE 下架商品請求 (推送版本)"""
+def handle_line_delisted_products(reply_token):
+    """處理 LINE 下架商品請求"""
     delisted_products = monitor.get_today_history('delisted')
     
     if not delisted_products:
-        line_bot_api.push_message(
-            user_id,
+        line_bot_api.reply_message(
+            reply_token,
             TextSendMessage(text="今天還沒有商品下架")
         )
         return
@@ -943,13 +908,13 @@ def push_line_delisted_products(user_id):
     # 創建 Flex 消息
     bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
     
-    line_bot_api.push_message(
-        user_id,
+    line_bot_api.reply_message(
+        reply_token,
         FlexSendMessage(alt_text="今日下架商品", contents=bubble)
     )
 
-def push_line_status(user_id):
-    """處理 LINE 狀態請求 (推送版本)"""
+def handle_line_status(reply_token):
+    """處理 LINE 狀態請求"""
     try:
         # 檢查 MongoDB 連接
         monitor.client.admin.command('ping')
@@ -970,16 +935,16 @@ def push_line_status(user_id):
         )
     )
     
-    line_bot_api.push_message(
-        user_id,
+    line_bot_api.reply_message(
+        reply_token,
         FlexSendMessage(alt_text="服務狀態", contents=bubble)
     )
 
-def push_line_history(user_id, days):
-    """處理 LINE 歷史記錄請求 (推送版本)"""
+def handle_line_history(reply_token, days):
+    """處理 LINE 歷史記錄請求"""
     if days <= 0 or days > 30:
-        line_bot_api.push_message(
-            user_id,
+        line_bot_api.reply_message(
+            reply_token,
             TextSendMessage(text="請指定 1-30 天的範圍")
         )
         return
@@ -993,8 +958,8 @@ def push_line_history(user_id, days):
     }).sort('date', -1))
     
     if not history_records:
-        line_bot_api.push_message(
-            user_id,
+        line_bot_api.reply_message(
+            reply_token,
             TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
         )
         return
@@ -1038,13 +1003,13 @@ def push_line_history(user_id, days):
         )
     )
     
-    line_bot_api.push_message(
-        user_id,
+    line_bot_api.reply_message(
+        reply_token,
         FlexSendMessage(alt_text=f"近 {days} 天的變更記錄", contents=bubble)
     )
 
-def push_line_help(user_id):
-    """發送 LINE 幫助信息 (推送版本)"""
+def handle_line_help(reply_token):
+    """發送 LINE 幫助信息"""
     help_text = (
         "可用指令：\n"
         "📦 上架 - 顯示今日新上架商品\n"
@@ -1054,8 +1019,8 @@ def push_line_help(user_id):
         "❓ 指令 - 顯示可用指令"
     )
     
-    line_bot_api.push_message(
-        user_id,
+    line_bot_api.reply_message(
+        reply_token,
         TextSendMessage(text=help_text)
     )
 
