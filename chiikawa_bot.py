@@ -809,10 +809,31 @@ async def handle_line_webhook(request):
         signature = request.headers.get('X-Line-Signature', '')
         body = await request.text()
         
-        # 处理 webhook
-        line_handler.handle(body, signature)
+        # 解析请求内容
+        events = json.loads(body)["events"]
         
+        # 检查是否为指令消息
+        for event in events:
+            if event["type"] == "message" and event["message"]["type"] == "text":
+                text = event["message"]["text"].lower()
+                # 检查是否为支持的指令
+                commands = ['上架', '下架', '狀態', '指令']
+                is_command = text in commands or text.startswith('歷史')
+                
+                if is_command:
+                    # 指令消息交给handler处理
+                    line_handler.handle(body, signature)
+                    logger.info(f"指令訊息，由云端程序處理: {text}")
+                    return web.Response(text='OK')
+                else:
+                    # 非指令消息不处理，直接返回错误状态码让LINE平台处理
+                    logger.info(f"非指令訊息，交由LINE平台處理: {text}")
+                    return web.Response(status=400, text='Not a command')
+            
+        # 如果不是消息事件，交给handler处理（可能是其他事件）
+        line_handler.handle(body, signature)
         return web.Response(text='OK')
+        
     except InvalidSignatureError:
         logger.error("LINE Webhook 签名无效")
         return web.Response(status=400, text='Invalid signature')
@@ -826,7 +847,7 @@ def handle_line_message(event):
     """處理 LINE 訊息"""
     try:
         text = event.message.text.lower()
-        logger.info(f"收到 LINE 訊息: {text}")
+        logger.info(f"處理指令訊息: {text}")
         
         # 定義支援的指令列表
         commands = ['上架', '下架', '狀態', '指令']
@@ -835,19 +856,6 @@ def handle_line_message(event):
         is_history_command = False
         if text.startswith('歷史'):
             is_history_command = True
-        
-        # 檢查是否是支援的指令
-        is_command = False
-        for cmd in commands:
-            if text == cmd:
-                is_command = True
-                break
-        
-        # 如果不是支援的指令，直接返回，讓LINE平台處理
-        if not (is_command or is_history_command):
-            logger.info(f"非指令訊息，交由LINE平台處理: {text}")
-            # 直接返回，不處理該訊息
-            return
         
         # 處理支援的指令
         if text == '上架':
@@ -867,6 +875,7 @@ def handle_line_message(event):
                     event.reply_token,
                     TextSendMessage(text="請指定 1-30 天的範圍")
                 )
+        # 注意：现在我们只会收到指令消息，非指令消息已在webhook层面被过滤
             
     except Exception as e:
         logger.error(f"處理 LINE 訊息時發生錯誤: {str(e)}")
