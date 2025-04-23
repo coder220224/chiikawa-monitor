@@ -851,7 +851,7 @@ def handle_line_message(event):
     """處理 LINE 訊息"""
     try:
         text = event.message.text.lower()
-        logger.info(f"處理指令訊息: {text}")
+        logger.info(f"處理 LINE 訊息: {text}")
         
         # 定義支援的指令列表
         commands = ['上架', '下架', '狀態', '指令']
@@ -869,36 +869,41 @@ def handle_line_message(event):
             # 不是指令，不處理，讓LINE平台的自動回覆生效
             logger.info(f"非指令訊息，交由LINE平台處理: {text}")
             return
+            
+        # 獲取用戶ID
+        user_id = event.source.user_id
         
-        # 先发送一个空白的快速回复，这会覆盖LINE的自动回复
+        # 处理指令并直接使用push_message发送，完全跳过reply_token
+        logger.info(f"處理指令: {text}")
+        
+        # 處理支援的指令
+        if text == '上架':
+            push_line_new_products(user_id)
+        elif text == '下架':
+            push_line_delisted_products(user_id)
+        elif text == '狀態':
+            push_line_status(user_id)
+        elif text == '指令':
+            push_line_help(user_id)
+        elif is_history_command:
+            try:
+                days = int(text[2:]) if len(text) > 2 else 7
+                push_line_history(user_id, days)
+            except ValueError:
+                line_bot_api.push_message(
+                    user_id,
+                    TextSendMessage(text="請指定 1-30 天的範圍")
+                )
+                
+        # 通过发送一个看不见的消息来消耗掉reply_token，阻止LINE平台的自动回复
+        # 使用一个空格而不是零宽空格，确保消息不为空
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="\u200B")  # 使用零宽空格，用户看不见
+                TextSendMessage(text=" ")  # 使用一个空格代替零宽空格
             )
-            # 使用 push message 而不是 reply message 来发送真正的回复
-            user_id = event.source.user_id
-            
-            # 處理支援的指令
-            if text == '上架':
-                push_line_new_products(user_id)
-            elif text == '下架':
-                push_line_delisted_products(user_id)
-            elif text == '狀態':
-                push_line_status(user_id)
-            elif text == '指令':
-                push_line_help(user_id)
-            elif is_history_command:
-                try:
-                    days = int(text[2:]) if len(text) > 2 else 7
-                    push_line_history(user_id, days)
-                except ValueError:
-                    line_bot_api.push_message(
-                        user_id,
-                        TextSendMessage(text="請指定 1-30 天的範圍")
-                    )
         except Exception as e:
-            logger.error(f"處理指令時發生錯誤: {str(e)}")
+            logger.error(f"回复空消息失败: {str(e)}")
             
     except Exception as e:
         logger.error(f"處理 LINE 訊息時發生錯誤: {str(e)}")
