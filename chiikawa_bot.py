@@ -21,7 +21,7 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     FlexSendMessage, BubbleContainer, BoxComponent,
     TextComponent, ButtonComponent, URIAction, CarouselContainer,
-    ImageComponent
+    ImageComponent, ImageCarouselTemplate, ImageCarouselColumn, TemplateSendMessage
 )
 import time
 
@@ -950,23 +950,12 @@ def handle_line_message(event):
         text = event.message.text.lower()
         logger.info(f"收到 LINE 訊息: {text}")
         
-        # 獲取用戶ID
-        user_id = event.source.user_id
-        
-        # 如果用戶輸入"id"或"userid"，則顯示其用戶ID
-        if text == "id" or text == "userid" or text == "用戶id" or text == "我的id":
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"您的LINE用戶ID是：{user_id}")
-            )
-            return
-        
         # 定義支援的指令列表
         commands = ['狀態', '指令']
         
         # 檢查是否是歷史指令(特殊處理)
         is_history_command = False
-        days_history = 7  # 默认7天
+        days_history = 7  # 默認7天
         if text.startswith('歷史'):
             is_history_command = True
             parts = text.split()
@@ -984,7 +973,7 @@ def handle_line_message(event):
         
         # 檢查是否是上架指令(特殊處理)
         is_new_command = False
-        days_new = 0  # 默认今天
+        days_new = 0  # 默認今天
         if text.startswith('上架'):
             is_new_command = True
             parts = text.split()
@@ -1002,7 +991,7 @@ def handle_line_message(event):
         
         # 檢查是否是下架指令(特殊處理)
         is_delisted_command = False
-        days_delisted = 0  # 默认今天
+        days_delisted = 0  # 默認今天
         if text.startswith('下架'):
             is_delisted_command = True
             parts = text.split()
@@ -1037,13 +1026,13 @@ def handle_line_message(event):
             elif is_delisted_command:
                 handle_line_delisted_products(event, days_delisted)
             elif is_restock_command:
-                handle_line_restock(event)  # 传递完整event对象
+                handle_line_restock(event)  # 傳遞完整event對象
             elif text == '狀態':
                 handle_line_status(event.reply_token)
             elif text == '指令':
                 handle_line_help(event.reply_token)
             elif is_history_command:
-                handle_line_history(event, days_history)  # 传递完整event对象和天数
+                handle_line_history(event, days_history)  # 傳遞完整event對象和天數
         # 不處理非指令訊息
             
     except Exception as e:
@@ -1058,7 +1047,7 @@ def handle_line_message(event):
             pass
 
 def handle_line_new_products(event, days):
-    """處理 LINE 上架商品請求"""
+    """處理 LINE 上架商品請求 (使用Image Carousel)"""
     try:
         if days == 0:
             new_products = monitor.get_today_new_products()
@@ -1093,46 +1082,23 @@ def handle_line_new_products(event, days):
             products = products_by_date[date_str]
             total_count = len(products)
             
-            # 计算这个日期需要多少个气泡 (每个气泡7个商品)
-            products_per_bubble = 7
-            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            # 發送日期標題 (每個日期只發一次)
+            date_title = f"{date_str} 上架商品 (共{total_count}件)"
+            messages.append(TextSendMessage(text=date_title))
             
-            # 如果只需要一个气泡，直接添加
-            if bubbles_needed == 1:
-                bubble = create_product_flex_message(
-                    f"{date_str} 上架商品", 
-                    products, 
-                    "🆕", 
-                    total_count
-                )
-                messages.append(FlexSendMessage(
-                    alt_text=f"{date_str} 上架商品",
-                    contents=bubble
-                ))
-                continue
+            # 每10个商品一组，使用Image Carousel显示
+            items_per_carousel = 10
+            carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
             
-            # 如果需要多个气泡，创建轮播
-            date_bubbles = []
-            for i in range(bubbles_needed):
-                start_idx = i * products_per_bubble
-                end_idx = min(start_idx + products_per_bubble, total_count)
+            for i in range(carousel_count):
+                start_idx = i * items_per_carousel
+                end_idx = min(start_idx + items_per_carousel, total_count)
                 batch_products = products[start_idx:end_idx]
                 
-                batch_title = f"{date_str} 上架商品 ({i+1}/{bubbles_needed})"
-                bubble = create_product_flex_message(
-                    batch_title, 
-                    batch_products, 
-                    "🆕", 
-                    total_count
-                )
-                date_bubbles.append(bubble)
-            
-            # 创建轮播并添加到消息列表
-            carousel = CarouselContainer(contents=date_bubbles)
-            messages.append(FlexSendMessage(
-                alt_text=f"{date_str} 上架商品",
-                contents=carousel
-            ))
+                # 創建Image Carousel
+                carousel = create_image_carousel(batch_products)
+                if carousel:
+                    messages.append(carousel)
         
         # 根据消息数量决定如何发送
         if len(messages) == 1:
@@ -1161,7 +1127,7 @@ def handle_line_new_products(event, days):
             pass
 
 def handle_line_delisted_products(event, days):
-    """處理 LINE 下架商品請求"""
+    """處理 LINE 下架商品請求 (使用Image Carousel)"""
     try:
         if days == 0:
             delisted_products = monitor.get_today_delisted_products()
@@ -1196,46 +1162,23 @@ def handle_line_delisted_products(event, days):
             products = products_by_date[date_str]
             total_count = len(products)
             
-            # 计算这个日期需要多少个气泡 (每个气泡7个商品)
-            products_per_bubble = 7
-            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            # 發送日期標題 (每個日期只發一次)
+            date_title = f"{date_str} 下架商品 (共{total_count}件)"
+            messages.append(TextSendMessage(text=date_title))
             
-            # 如果只需要一个气泡，直接添加
-            if bubbles_needed == 1:
-                bubble = create_product_flex_message(
-                    f"{date_str} 下架商品", 
-                    products, 
-                    "❌", 
-                    total_count
-                )
-                messages.append(FlexSendMessage(
-                    alt_text=f"{date_str} 下架商品",
-                    contents=bubble
-                ))
-                continue
+            # 每10个商品一组，使用Image Carousel显示
+            items_per_carousel = 10
+            carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
             
-            # 如果需要多个气泡，创建轮播
-            date_bubbles = []
-            for i in range(bubbles_needed):
-                start_idx = i * products_per_bubble
-                end_idx = min(start_idx + products_per_bubble, total_count)
+            for i in range(carousel_count):
+                start_idx = i * items_per_carousel
+                end_idx = min(start_idx + items_per_carousel, total_count)
                 batch_products = products[start_idx:end_idx]
                 
-                batch_title = f"{date_str} 下架商品 ({i+1}/{bubbles_needed})"
-                bubble = create_product_flex_message(
-                    batch_title, 
-                    batch_products, 
-                    "❌", 
-                    total_count
-                )
-                date_bubbles.append(bubble)
-            
-            # 创建轮播并添加到消息列表
-            carousel = CarouselContainer(contents=date_bubbles)
-            messages.append(FlexSendMessage(
-                alt_text=f"{date_str} 下架商品",
-                contents=carousel
-            ))
+                # 創建Image Carousel
+                carousel = create_image_carousel(batch_products)
+                if carousel:
+                    messages.append(carousel)
         
         # 根据消息数量决定如何发送
         if len(messages) == 1:
@@ -1291,7 +1234,7 @@ def handle_line_status(reply_token):
     )
 
 def handle_line_history(event, days):
-    """處理 LINE 歷史記錄請求"""
+    """處理 LINE 歷史記錄請求 (使用Image Carousel)"""
     if days <= 0 or days > 30:
         line_bot_api.reply_message(
             event.reply_token,
@@ -1320,92 +1263,85 @@ def handle_line_history(event, days):
         for record in history_records:
             date_str = record['date'].strftime('%Y-%m-%d')
             if date_str not in records_by_date:
-                records_by_date[date_str] = []
-            records_by_date[date_str].append(record)
+                records_by_date[date_str] = {'new': [], 'delisted': []}
+            records_by_date[date_str][record['type']].append(record)
         
-        # 如果只有一天的記錄，直接發送
-        if len(records_by_date) == 1:
-            date_str = list(records_by_date.keys())[0]
-            records = records_by_date[date_str]
-            total_count = len(records)
-            
-            # 計算需要的氣泡數量 (每個氣泡10條記錄)
-            records_per_bubble = 10
-            bubbles_needed = (total_count + records_per_bubble - 1) // records_per_bubble
-            
-            # 如果只需要一個氣泡
-            if bubbles_needed == 1:
-                bubble = create_history_flex_message(date_str, records, days, total_count)
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    FlexSendMessage(alt_text=f"{date_str} 的變更記錄", contents=bubble)
-                )
-                return
-            
-            # 需要多個氣泡，創建輪播
-            bubbles = []
-            for i in range(bubbles_needed):
-                start_idx = i * records_per_bubble
-                end_idx = min(start_idx + records_per_bubble, total_count)
-                batch_records = records[start_idx:end_idx]
-                
-                # 使用序號來標識不同的氣泡
-                bubble_title = f"{date_str} ({i+1}/{bubbles_needed})"
-                bubble = create_history_flex_message(bubble_title, batch_records, days, total_count)
-                bubbles.append(bubble)
-            
-            # 創建輪播
-            carousel = CarouselContainer(contents=bubbles)
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(alt_text=f"{date_str} 的變更記錄", contents=carousel)
-            )
-            return
-        
-        # 多日期情況：只顯示最新的一天
+        # 按日期排序（最新的在前）
         sorted_dates = sorted(records_by_date.keys(), reverse=True)
-        first_date = sorted_dates[0]
-        records = records_by_date[first_date]
-        total_count = len(records)
         
-        # 計算第一天需要的氣泡數
-        records_per_bubble = 10
-        bubbles_needed = (total_count + records_per_bubble - 1) // records_per_bubble
+        # 准备要发送的消息列表
+        messages = []
         
-        bubbles = []
-        for i in range(bubbles_needed):
-            start_idx = i * records_per_bubble
-            end_idx = min(start_idx + records_per_bubble, total_count)
-            batch_records = records[start_idx:end_idx]
+        # 处理每个日期的记录
+        for date_str in sorted_dates:
+            records = records_by_date[date_str]
             
-            bubble_title = first_date
-            if bubbles_needed > 1:
-                bubble_title += f" ({i+1}/{bubbles_needed})"
+            # 統計每种类型的商品数量
+            new_count = len(records['new'])
+            del_count = len(records['delisted'])
+            
+            # 發送日期標題
+            date_title = f"{date_str} 商品變更記錄 (上架: {new_count}件 | 下架: {del_count}件)"
+            messages.append(TextSendMessage(text=date_title))
+            
+            # 处理上架商品 (如果有的话)
+            if new_count > 0:
+                new_products = records['new']
                 
-            bubble = create_history_flex_message(bubble_title, batch_records, days, total_count)
-            bubbles.append(bubble)
-        
-        # 創建輪播
-        carousel = CarouselContainer(contents=bubbles)
-        
-        # 針對多日期，只顯示第一天並提示用戶
-        if len(sorted_dates) > 1:
-            extra_text = f"還有其他 {len(sorted_dates)-1} 天的變更記錄。\n請使用「歷史 [天數]」查看特定時間範圍。"
-            extra_message = TextSendMessage(text=extra_text)
+                # 每10个商品一组，使用Image Carousel显示
+                items_per_carousel = 10
+                carousel_count = (new_count + items_per_carousel - 1) // items_per_carousel
+                
+                # 如果需要发送多个Image Carousel，先发送一个小标题
+                if carousel_count > 0:
+                    messages.append(TextSendMessage(text=f"🆕 上架商品 ({new_count}件)"))
+                
+                for i in range(carousel_count):
+                    start_idx = i * items_per_carousel
+                    end_idx = min(start_idx + items_per_carousel, new_count)
+                    batch_products = new_products[start_idx:end_idx]
+                    
+                    # 創建Image Carousel
+                    carousel = create_image_carousel(batch_products)
+                    if carousel:
+                        messages.append(carousel)
             
-            # 用陣列回復多則訊息
-            line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    FlexSendMessage(alt_text=f"{first_date} 的變更記錄", contents=carousel),
-                    extra_message
-                ]
-            )
+            # 处理下架商品 (如果有的话)
+            if del_count > 0:
+                del_products = records['delisted']
+                
+                # 每10个商品一组，使用Image Carousel显示
+                items_per_carousel = 10
+                carousel_count = (del_count + items_per_carousel - 1) // items_per_carousel
+                
+                # 如果需要发送多个Image Carousel，先发送一个小标题
+                if carousel_count > 0:
+                    messages.append(TextSendMessage(text=f"❌ 下架商品 ({del_count}件)"))
+                
+                for i in range(carousel_count):
+                    start_idx = i * items_per_carousel
+                    end_idx = min(start_idx + items_per_carousel, del_count)
+                    batch_products = del_products[start_idx:end_idx]
+                    
+                    # 創建Image Carousel
+                    carousel = create_image_carousel(batch_products)
+                    if carousel:
+                        messages.append(carousel)
+        
+        # 根据消息数量决定如何发送
+        if len(messages) == 1:
+            # 只有一条消息，直接回复
+            line_bot_api.reply_message(event.reply_token, messages[0])
         else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(alt_text=f"{first_date} 的變更記錄", contents=carousel)
-            )
+            # 有多条消息，回复第一条并推送后续消息
+            line_bot_api.reply_message(event.reply_token, messages[0])
+            
+            # 获取用户ID并推送剩余消息
+            user_id = event.source.user_id
+            for msg in messages[1:]:
+                line_bot_api.push_message(user_id, msg)
+                # 避免太快发送触发限制
+                time.sleep(0.5)
             
     except Exception as e:
         logger.error(f"處理歷史記錄請求時發生錯誤: {str(e)}")
@@ -1418,99 +1354,46 @@ def handle_line_history(event, days):
         except:
             pass
 
-def create_history_flex_message(date_str, records, days, total_count):
-    """创建单个日期的历史记录 Flex 消息"""
-    # 计算统计数据
-    new_count = sum(1 for r in records if r['type'] == 'new')
-    del_count = sum(1 for r in records if r['type'] == 'delisted')
+def create_image_carousel(products):
+    """創建Image Carousel消息"""
+    # 確保不超過10個項目(LINE的限制)
+    if len(products) > 10:
+        products = products[:10]
     
-    # 创建消息内容
-    contents = [
-        TextComponent(
-            text=f"{date_str} 的變更記錄",
-            weight="bold",
-            size="xl"
-        ),
-        TextComponent(
-            text=f"上架: {new_count}件 | 下架: {del_count}件",
-            size="sm",
-            color="#999999",
-            margin="md"
-        ),
-        TextComponent(
-            text=f"共 {total_count} 個記錄" + (f" (顯示 {len(records)} 個)" if len(records) < total_count else ""),
-            size="sm", 
-            color="#aaaaaa",
-            margin="md"
-        )
-    ]
+    # 如果沒有商品，返回None
+    if not products:
+        return None
     
-    # 按类型和时间排序
-    sorted_records = sorted(records, key=lambda r: (r['type'] != 'new', r['date']))
-    
-    # 添加所有记录
-    for i, record in enumerate(sorted_records):
-        icon = "🆕" if record['type'] == 'new' else "❌"
-        time_str = record['date'].strftime('%H:%M')
+    columns = []
+    for product in products:
+        # 處理標籤文字，確保不超過Label的12字符限制
+        name = product['name']
+        if len(name) > 12:
+            label = name[:11] + "…"
+        else:
+            label = name
         
-        # 名称可能太长，进行截断
-        name = record['name']
-        if len(name) > 30:
-            name = name[:27] + "..."
-            
-        # 创建记录项
-        item = BoxComponent(
-            layout="horizontal",
-            margin="md",
-            contents=[
-                TextComponent(
-                    text=f"{icon} {time_str}",
-                    size="sm",
-                    flex=3
-                ),
-                TextComponent(
-                    text=name,
-                    size="sm",
-                    flex=7,
-                    wrap=True,
-                    action=URIAction(uri=record['url'])
-                )
-            ]
-        )
-        contents.append(item)
+        # 獲取圖片URL，如果沒有則使用默認圖片
+        image_url = product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png')
         
-        # 添加分隔线
-        if i < len(sorted_records) - 1:
-            contents.append(
-                BoxComponent(
-                    layout="vertical",
-                    margin="sm",
-                    height="1px",
-                    backgroundColor="#AAAAAA"
-                )
-            )
-    
-    # 如果有未顯示的記錄，添加提示
-    if len(records) < total_count:
-        contents.append(
-            TextComponent(
-                text=f"...還有 {total_count - len(records)} 個記錄未顯示",
-                size="sm",
-                color="#AAAAAA",
-                align="center",
-                margin="md"
+        # 創建列
+        column = ImageCarouselColumn(
+            image_url=image_url,
+            action=URIAction(
+                label=label,
+                uri=product['url']
             )
         )
+        columns.append(column)
     
-    # 创建气泡
-    bubble = BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=contents
-        )
+    # 創建圖片輪播
+    carousel_template = ImageCarouselTemplate(columns=columns)
+    message = TemplateSendMessage(
+        alt_text="商品列表",
+        template=carousel_template
     )
     
-    return bubble
+    return message
 
 def handle_line_help(reply_token):
     """發送 LINE 幫助信息"""
@@ -1521,7 +1404,6 @@ def handle_line_help(reply_token):
         "🔄 補貨 - 查看即將補貨的商品\n"
         "🔧 狀態 - 檢查服務運行狀態\n"
         "📅 歷史 [天數] - 顯示指定天數內的變更記錄（默認7天）\n"
-        "🆔 id - 顯示您的LINE用戶ID\n"
         "❓ 指令 - 顯示可用指令"
     )
     
@@ -1530,121 +1412,8 @@ def handle_line_help(reply_token):
         TextSendMessage(text=help_text)
     )
 
-def create_product_flex_message(title, products, icon="🆕", total_count=None):
-    """創建商品 Flex 消息，使用分頁顯示商品"""
-    # 计算需要多少个气泡
-    if total_count is None:
-        total_count = len(products)
-    
-    # 创建气泡的内容
-    contents = [
-        TextComponent(
-            text=title,
-            weight="bold",
-            size="xl"
-        ),
-        TextComponent(
-            text=f"共 {total_count} 個商品" + (f" (顯示 {len(products)} 個)" if len(products) < total_count else ""),
-            size="sm", 
-            color="#aaaaaa",
-            margin="md"
-        )
-    ]
-    
-    # 添加所有商品
-    for i, product in enumerate(products):
-        time_str = product['time'].strftime('%H:%M:%S')
-        
-        # 截断可能过长的商品名称
-        name = product['name']
-        if len(name) > 30:
-            name = name[:27] + "..."
-        
-        # 创建商品容器
-        product_box = BoxComponent(
-            layout="horizontal",
-            margin="md",
-            contents=[
-                # 如果有图片，添加图片组件
-                BoxComponent(
-                    layout="vertical",
-                    width="72px",
-                    height="72px",
-                    contents=[
-                        ImageComponent(
-                            url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
-                            size="full",
-                            aspect_mode="cover",
-                            aspect_ratio="1:1"
-                        ) if product.get('image_url') else TextComponent(
-                            text="🖼️",
-                            size="xxl",
-                            align="center",
-                            gravity="center"
-                        )
-                    ]
-                ),
-                # 商品信息
-                BoxComponent(
-                    layout="vertical",
-                    flex=1,
-                    margin="md",
-                    spacing="sm",
-                    contents=[
-                        TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
-                        TextComponent(text=f"時間: {time_str}", size="xs", color="#999999")
-                    ]
-                )
-            ]
-        )
-        
-        # 添加商品容器
-        contents.append(product_box)
-        
-        # 添加查看按钮
-        contents.append(
-            ButtonComponent(
-                style="link",
-                height="sm",
-                action=URIAction(label="查看商品", uri=product['url'])
-            )
-        )
-        
-        # 添加分隔线
-        if i < len(products) - 1:
-            contents.append(
-                BoxComponent(
-                    layout="vertical",
-                    margin="sm",
-                    height="1px",
-                    backgroundColor="#AAAAAA"
-                )
-            )
-    
-    # 添加提示信息
-    if len(products) < total_count:
-        contents.append(
-            TextComponent(
-                text=f"...還有 {total_count - len(products)} 個商品未顯示",
-                size="sm",
-                color="#AAAAAA",
-                align="center",
-                margin="md"
-            )
-        )
-    
-    # 创建气泡容器
-    bubble = BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=contents
-        )
-    )
-    
-    return bubble
-
 def handle_line_restock(event):
-    """處理 LINE 補貨商品請求"""
+    """處理 LINE 補貨商品請求 (使用Image Carousel)"""
     try:
         # 获取补货商品
         resale_products = monitor.get_resale_products()
@@ -1678,36 +1447,38 @@ def handle_line_restock(event):
             products = products_by_date[date_str]
             total_count = len(products)
             
-            # 计算这个日期需要多少个气泡 (每个气泡最多7个商品)
-            products_per_bubble = 7
-            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            # 計算與當前日期的差距
+            current_date = datetime.now(TW_TIMEZONE).date()
+            restock_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            days_diff = (restock_date - current_date).days
             
-            # 如果只需要一个气泡，直接添加
-            if bubbles_needed == 1:
-                bubble = create_restock_date_bubble(date_str, products, total_count)
-                messages.append(FlexSendMessage(
-                    alt_text=f"{date_str} 即將補貨的商品",
-                    contents=bubble
-                ))
-                continue
+            # 生成易讀的日期顯示
+            if days_diff == 0:
+                date_display = f"今天 ({date_str})"
+            elif days_diff == 1:
+                date_display = f"明天 ({date_str})"
+            elif days_diff > 0:
+                date_display = f"{days_diff} 天後 ({date_str})"
+            else:
+                date_display = date_str
             
-            # 如果需要多个气泡，创建轮播
-            date_bubbles = []
-            for i in range(bubbles_needed):
-                start_idx = i * products_per_bubble
-                end_idx = min(start_idx + products_per_bubble, total_count)
+            # 發送日期標題 (每個日期只發一次)
+            date_title = f"補貨日期: {date_display} (共{total_count}件)"
+            messages.append(TextSendMessage(text=date_title))
+            
+            # 每10个商品一组，使用Image Carousel显示
+            items_per_carousel = 10
+            carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
+            
+            for i in range(carousel_count):
+                start_idx = i * items_per_carousel
+                end_idx = min(start_idx + items_per_carousel, total_count)
                 batch_products = products[start_idx:end_idx]
                 
-                batch_title = f"{date_str} ({i+1}/{bubbles_needed})"
-                bubble = create_restock_date_bubble(batch_title, batch_products, total_count)
-                date_bubbles.append(bubble)
-            
-            # 创建轮播并添加到消息列表
-            carousel = CarouselContainer(contents=date_bubbles)
-            messages.append(FlexSendMessage(
-                alt_text=f"{date_str} 即將補貨的商品",
-                contents=carousel
-            ))
+                # 創建Image Carousel
+                carousel = create_image_carousel(batch_products)
+                if carousel:
+                    messages.append(carousel)
         
         # 根据消息数量决定如何发送
         if len(messages) == 1:
@@ -1734,94 +1505,6 @@ def handle_line_restock(event):
             )
         except:
             pass
-
-def create_restock_date_bubble(date_str, products, total_count):
-    """创建特定日期的补货商品气泡"""
-    # 计算与当前日期的差距
-    current_date = datetime.now(TW_TIMEZONE).date()
-    restock_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    days_diff = (restock_date - current_date).days
-    
-    if days_diff == 0:
-        date_display = f"今天 ({date_str})"
-    elif days_diff == 1:
-        date_display = f"明天 ({date_str})"
-    elif days_diff > 0:
-        date_display = f"{days_diff} 天後 ({date_str})"
-    else:
-        date_display = date_str
-    
-    # 创建气泡头部
-    contents = [
-        TextComponent(
-            text="即將補貨的商品",
-            weight="bold",
-            size="xl"
-        ),
-        TextComponent(
-            text=f"補貨日期: {date_display}",
-            size="md",
-            color="#888888",
-            margin="md"
-        ),
-        TextComponent(
-            text=f"共 {total_count} 個商品",
-            size="sm", 
-            color="#aaaaaa",
-            margin="md"
-        )
-    ]
-    
-    # 添加商品 - 不限制数量，显示所有商品
-    for i, product in enumerate(products):
-        name = product['name']
-        if len(name) > 30:
-            name = name[:27] + "..."
-            
-        # 添加商品容器
-        product_box = BoxComponent(
-            layout="vertical",
-            margin="lg",
-            contents=[
-                TextComponent(
-                    text=name,
-                    weight="bold",
-                    size="sm",
-                    wrap=True
-                ),
-                ButtonComponent(
-                    style="link",
-                    height="sm",
-                    action=URIAction(
-                        label="查看商品",
-                        uri=product['url']
-                    )
-                )
-            ]
-        )
-        
-        contents.append(product_box)
-        
-        # 添加分隔线
-        if i < len(products) - 1:
-            contents.append(
-                BoxComponent(
-                    layout="vertical",
-                    margin="sm",
-                    height="1px",
-                    backgroundColor="#AAAAAA"
-                )
-            )
-    
-    # 创建气泡容器
-    bubble = BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=contents
-        )
-    )
-    
-    return bubble
 
 # 運行 Bot
 if __name__ == "__main__":
