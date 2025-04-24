@@ -20,7 +20,7 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     FlexSendMessage, BubbleContainer, BoxComponent,
-    TextComponent, ButtonComponent, URIAction
+    TextComponent, ButtonComponent, URIAction, CarouselContainer
 )
 
 # 設定台灣時區
@@ -365,16 +365,52 @@ async def new_listings(ctx):
             await ctx.send(embed=embed)
             return
             
+        # 限制商品数量，防止超出Discord嵌入消息大小限制
+        max_products = 25  # 设置一个合理的上限
+        if len(new_products) > max_products:
+            # 如果商品太多，分批发送
+            batches = [new_products[i:i+max_products] for i in range(0, len(new_products), max_products)]
+            
+            for i, batch in enumerate(batches):
+                embed = discord.Embed(
+                    title=f"今日上架商品 ({i+1}/{len(batches)})", 
+                    description=f"共{len(new_products)}个商品上架", 
+                    color=0x00ff00
+                )
+                
+                for product in batch:
+                    time_str = product['time'].strftime('%H:%M:%S')
+                    # 限制字段内容长度
+                    name = product['name']
+                    if len(name) > 100:  # 限制标题长度
+                        name = name[:97] + "..."
+                    
+                    field_content = f"🆕 上架時間: {time_str}\n[商品連結]({product['url']})"
+                    embed.add_field(name=name, value=field_content, inline=False)
+                
+                await ctx.send(embed=embed)
+            
+            return
+        
+        # 如果商品数量不多，正常处理
         embed = discord.Embed(title="今日上架商品", color=0x00ff00)
         for product in new_products:
             time_str = product['time'].strftime('%H:%M:%S')
+            
+            # 限制字段内容长度
+            name = product['name']
+            if len(name) > 100:  # 限制标题长度
+                name = name[:97] + "..."
+            
             field_content = f"🆕 上架時間: {time_str}\n[商品連結]({product['url']})"
-            embed.add_field(name=product['name'], value=field_content, inline=False)
+            embed.add_field(name=name, value=field_content, inline=False)
         
         await ctx.send(embed=embed)
             
     except Exception as e:
         await ctx.send(f"讀取上架記錄時發生錯誤：{str(e)}")
+        logger.error(f"讀取上架記錄時發生錯誤：{str(e)}")
+        logger.error(traceback.format_exc())
 
 @bot.command(name='下架')
 async def delisted(ctx):
@@ -386,17 +422,53 @@ async def delisted(ctx):
             embed = discord.Embed(title="今日下架商品", description="今天還沒有商品下架", color=0xff0000)
             await ctx.send(embed=embed)
             return
+        
+        # 限制商品数量，防止超出Discord嵌入消息大小限制
+        max_products = 25  # 设置一个合理的上限
+        if len(delisted_products) > max_products:
+            # 如果商品太多，分批发送
+            batches = [delisted_products[i:i+max_products] for i in range(0, len(delisted_products), max_products)]
             
+            for i, batch in enumerate(batches):
+                embed = discord.Embed(
+                    title=f"今日下架商品 ({i+1}/{len(batches)})", 
+                    description=f"共{len(delisted_products)}个商品下架", 
+                    color=0xff0000
+                )
+                
+                for product in batch:
+                    time_str = product['time'].strftime('%H:%M:%S')
+                    # 限制字段内容长度
+                    name = product['name']
+                    if len(name) > 100:  # 限制标题长度
+                        name = name[:97] + "..."
+                    
+                    field_content = f"❌ 下架時間: {time_str}\n[商品連結]({product['url']})"
+                    embed.add_field(name=name, value=field_content, inline=False)
+                
+                await ctx.send(embed=embed)
+            
+            return
+            
+        # 如果商品数量不多，正常处理
         embed = discord.Embed(title="今日下架商品", color=0xff0000)
         for product in delisted_products:
             time_str = product['time'].strftime('%H:%M:%S')
+            
+            # 限制字段内容长度
+            name = product['name']
+            if len(name) > 100:  # 限制标题长度
+                name = name[:97] + "..."
+                
             field_content = f"❌ 下架時間: {time_str}\n[商品連結]({product['url']})"
-            embed.add_field(name=product['name'], value=field_content, inline=False)
+            embed.add_field(name=name, value=field_content, inline=False)
         
         await ctx.send(embed=embed)
             
     except Exception as e:
         await ctx.send(f"讀取下架記錄時發生錯誤：{str(e)}")
+        logger.error(f"讀取下架記錄時發生錯誤：{str(e)}")
+        logger.error(traceback.format_exc())
 
 @bot.command(name='檢查')
 @has_role(ADMIN_ROLE_ID)
@@ -669,47 +741,67 @@ async def history(ctx, days: int = 7):
                 records_by_date[date_str] = {'new': [], 'delisted': []}
             records_by_date[date_str][record['type']].append(record)
         
-        # 創建嵌入消息
-        embed = discord.Embed(
-            title=f"近 {days} 天的商品變更記錄",
-            description=f"從 {start_date.strftime('%Y-%m-%d')} 到現在",
-            color=0x00ff00
-        )
-        
-        # 添加每天的記錄
-        for date_str, records in records_by_date.items():
-            day_text = []
-            
-            if records['new']:
-                new_items = [f"🆕 {r['name']}" for r in records['new']]
-                day_text.extend(new_items)
-                
-            if records['delisted']:
-                del_items = [f"❌ {r['name']}" for r in records['delisted']]
-                day_text.extend(del_items)
-            
-            if day_text:
-                field_text = "\n".join(day_text)
-                if len(field_text) > 1024:
-                    field_text = field_text[:1021] + "..."
-                    
-                embed.add_field(
-                    name=f"📅 {date_str}",
-                    value=field_text,
-                    inline=False
-                )
-        
-        # 添加統計信息
+        # 統計信息
         total_new = sum(len(r['new']) for r in records_by_date.values())
         total_del = sum(len(r['delisted']) for r in records_by_date.values())
         
-        embed.add_field(
-            name="📊 統計信息",
-            value=f"期間內共有：\n🆕 {total_new} 個商品上架\n❌ {total_del} 個商品下架",
-            inline=False
-        )
+        # 拆分发送，每个嵌入消息最多包含5天的数据
+        date_chunks = list(records_by_date.keys())
+        max_days_per_embed = 5
+        date_batches = [date_chunks[i:i+max_days_per_embed] for i in range(0, len(date_chunks), max_days_per_embed)]
         
-        await ctx.send(embed=embed)
+        for i, date_batch in enumerate(date_batches):
+            # 创建嵌入消息
+            embed = discord.Embed(
+                title=f"近 {days} 天的商品變更記錄 ({i+1}/{len(date_batches)})",
+                description=f"從 {start_date.strftime('%Y-%m-%d')} 到現在",
+                color=0x00ff00
+            )
+            
+            # 添加每天的记录
+            for date_str in date_batch:
+                records = records_by_date[date_str]
+                day_text = []
+                
+                if records['new']:
+                    # 限制每天显示的项目数量
+                    max_items_per_type = 20
+                    new_items = records['new'][:max_items_per_type]
+                    new_text = [f"🆕 {r['name']}" for r in new_items]
+                    if len(records['new']) > max_items_per_type:
+                        new_text.append(f"...还有 {len(records['new']) - max_items_per_type} 个商品")
+                    day_text.extend(new_text)
+                    
+                if records['delisted']:
+                    # 限制每天显示的项目数量
+                    max_items_per_type = 20
+                    del_items = records['delisted'][:max_items_per_type]
+                    del_text = [f"❌ {r['name']}" for r in del_items]
+                    if len(records['delisted']) > max_items_per_type:
+                        del_text.append(f"...还有 {len(records['delisted']) - max_items_per_type} 个商品")
+                    day_text.extend(del_text)
+                
+                if day_text:
+                    field_text = "\n".join(day_text)
+                    # 检查并截断字段值，Discord限制每个字段值最大为1024字节
+                    if len(field_text) > 1024:
+                        field_text = field_text[:1021] + "..."
+                        
+                    embed.add_field(
+                        name=f"📅 {date_str}",
+                        value=field_text,
+                        inline=False
+                    )
+            
+            # 在最后一个嵌入消息中添加统计信息
+            if i == len(date_batches) - 1:
+                embed.add_field(
+                    name="📊 統計信息",
+                    value=f"期間內共有：\n🆕 {total_new} 個商品上架\n❌ {total_del} 個商品下架",
+                    inline=False
+                )
+            
+            await ctx.send(embed=embed)
             
     except Exception as e:
         error_msg = f"讀取歷史記錄時發生錯誤：{str(e)}"
@@ -886,8 +978,15 @@ def handle_line_new_products(reply_token):
         )
         return
     
+    # 限制商品数量，避免消息过大
+    max_products = 20  # 设置合理的上限
+    if len(new_products) > max_products:
+        new_products = new_products[:max_products]
+    
     # 創建 Flex 消息
-    bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
+    bubble = create_product_flex_message(f"今日上架商品 (顯示前{max_products}個)" 
+        if len(new_products) > max_products else "今日上架商品", 
+        new_products, "🆕")
     
     line_bot_api.reply_message(
         reply_token,
@@ -905,8 +1004,15 @@ def handle_line_delisted_products(reply_token):
         )
         return
     
+    # 限制商品数量，避免消息过大
+    max_products = 20  # 设置合理的上限
+    if len(delisted_products) > max_products:
+        delisted_products = delisted_products[:max_products]
+        
     # 創建 Flex 消息
-    bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
+    bubble = create_product_flex_message(f"今日下架商品 (顯示前{max_products}個)" 
+        if len(delisted_products) > max_products else "今日下架商品", 
+        delisted_products, "❌")
     
     line_bot_api.reply_message(
         reply_token,
@@ -972,40 +1078,94 @@ def handle_line_history(reply_token, days):
             records_by_date[date_str] = []
         records_by_date[date_str].append(record)
     
-    # 創建 Flex 消息
-    contents = [
-        TextComponent(text=f"近 {days} 天的變更記錄", weight="bold", size="xl")
-    ]
+    # 创建气泡列表
+    bubbles = []
+    dates = list(records_by_date.keys())
     
-    # 添加每天的記錄
-    for date_str, records in records_by_date.items():
-        day_text = ""
-        for record in records:
-            icon = "🆕" if record['type'] == 'new' else "❌"
-            time_str = record['time'].strftime('%H:%M')
-            day_text += f"{icon} {record['name']} ({time_str})\n"
+    # 每个气泡显示3天的记录
+    days_per_bubble = 3
+    total_bubbles = (len(dates) + days_per_bubble - 1) // days_per_bubble
+    
+    for bubble_index in range(total_bubbles):
+        start_idx = bubble_index * days_per_bubble
+        end_idx = min(start_idx + days_per_bubble, len(dates))
+        current_dates = dates[start_idx:end_idx]
         
+        # 创建气泡内容
+        contents = [
+            TextComponent(
+                text=f"近 {days} 天的變更記錄 ({bubble_index + 1}/{total_bubbles})", 
+                weight="bold", 
+                size="xl"
+            )
+        ]
+        
+        # 添加每天的记录
+        for date_str in current_dates:
+            records = records_by_date[date_str]
+            
+            # 计算每天的记录统计
+            new_count = sum(1 for r in records if r['type'] == 'new')
+            del_count = sum(1 for r in records if r['type'] == 'delisted')
+            
+            day_contents = [
+                TextComponent(text=f"📅 {date_str}", weight="bold", margin="md"),
+                TextComponent(text=f"上架: {new_count}件 | 下架: {del_count}件", size="sm", color="#999999")
+            ]
+            
+            # 添加商品记录
+            for record in records:
+                icon = "🆕" if record['type'] == 'new' else "❌"
+                time_str = record['time'].strftime('%H:%M')
+                
+                # 名称可能太长，进行截断
+                name = record['name']
+                if len(name) > 20:
+                    name = name[:17] + "..."
+                    
+                day_contents.append(
+                    TextComponent(
+                        text=f"{icon} {name} ({time_str})",
+                        size="sm",
+                        wrap=True,
+                        action=URIAction(uri=record['url'])
+                    )
+                )
+            
+            contents.append(
+                BoxComponent(
+                    layout="vertical",
+                    margin="md",
+                    contents=day_contents
+                )
+            )
+        
+        # 添加页码信息
         contents.append(
-            BoxComponent(
-                layout="vertical",
-                margin="md",
-                contents=[
-                    TextComponent(text=f"📅 {date_str}", weight="bold"),
-                    TextComponent(text=day_text, size="sm", wrap=True)
-                ]
+            TextComponent(
+                text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
+                size="sm",
+                color="#999999",
+                align="center",
+                margin="md"
             )
         )
-    
-    bubble = BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=contents
+        
+        # 创建气泡
+        bubble = BubbleContainer(
+            body=BoxComponent(
+                layout="vertical",
+                contents=contents
+            )
         )
-    )
+        bubbles.append(bubble)
+    
+    # 创建轮播容器
+    carousel = CarouselContainer(contents=bubbles)
     
     line_bot_api.reply_message(
         reply_token,
-        FlexSendMessage(alt_text=f"近 {days} 天的變更記錄", contents=bubble)
+        FlexSendMessage(alt_text=f"近 {days} 天的變更記錄", contents=carousel)
     )
 
 def handle_line_help(reply_token):
@@ -1025,35 +1185,79 @@ def handle_line_help(reply_token):
     )
 
 def create_product_flex_message(title, products, icon="🆕"):
-    """創建商品 Flex 消息"""
-    contents = [
-        TextComponent(text=title, weight="bold", size="xl")
-    ]
-
-    for product in products:
-        time_str = product['time'].strftime('%H:%M:%S')
+    """創建商品 Flex 消息，使用 Carousel 實現分頁"""
+    # 每个气泡最多显示10个商品
+    products_per_bubble = 10
+    bubbles = []
+    
+    # 计算需要多少个气泡
+    total_products = len(products)
+    total_bubbles = (total_products + products_per_bubble - 1) // products_per_bubble
+    
+    for bubble_index in range(total_bubbles):
+        start_idx = bubble_index * products_per_bubble
+        end_idx = min(start_idx + products_per_bubble, total_products)
+        current_products = products[start_idx:end_idx]
+        
+        # 创建每个气泡的内容
+        contents = [
+            TextComponent(
+                text=f"{title} ({bubble_index + 1}/{total_bubbles})",
+                weight="bold",
+                size="xl"
+            )
+        ]
+        
+        for product in current_products:
+            time_str = product['time'].strftime('%H:%M:%S')
+            
+            # 截断可能过长的商品名称
+            name = product['name']
+            if len(name) > 30:
+                name = name[:27] + "..."
+                
+            contents.append(
+                BoxComponent(
+                    layout="vertical",
+                    margin="md",
+                    contents=[
+                        TextComponent(text=f"{icon} {name}", weight="bold", wrap=True),
+                        TextComponent(text=f"時間: {time_str}", size="sm", color="#999999"),
+                        ButtonComponent(
+                            style="link",
+                            height="sm",
+                            action=URIAction(label="查看商品", uri=product['url'])
+                        )
+                    ]
+                )
+            )
+        
+        # 添加页码信息
         contents.append(
-            BoxComponent(
-                layout="vertical",
-                margin="md",
-                contents=[
-                    TextComponent(text=f"{icon} {product['name']}", weight="bold"),
-                    TextComponent(text=f"時間: {time_str}", size="sm", color="#999999"),
-                    ButtonComponent(
-                        style="link",
-                        height="sm",
-                        action=URIAction(label="查看商品", uri=product['url'])
-                    )
-                ]
+            TextComponent(
+                text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
+                size="sm",
+                color="#999999",
+                align="center",
+                margin="md"
             )
         )
-
-    return BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=contents
+        
+        # 创建气泡容器
+        bubble = BubbleContainer(
+            body=BoxComponent(
+                layout="vertical",
+                contents=contents
+            )
         )
-    )
+        bubbles.append(bubble)
+    
+    # 如果只有一个气泡，直接返回气泡
+    if len(bubbles) == 1:
+        return bubbles[0]
+    
+    # 否则返回轮播容器
+    return CarouselContainer(contents=bubbles)
 
 # 運行 Bot
 if __name__ == "__main__":
