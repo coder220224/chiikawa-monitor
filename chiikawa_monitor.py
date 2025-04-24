@@ -131,6 +131,12 @@ class ChiikawaMonitor:
                 'url': long_url
             }
             
+            # 打印請求信息
+            logger.info(f"Sending request to Reurl.cc API:")
+            logger.info(f"URL: {self.reurl_api_url}/shorten")
+            logger.info(f"Headers: {headers}")
+            logger.info(f"Payload: {payload}")
+            
             response = requests.post(
                 f"{self.reurl_api_url}/shorten",
                 headers=headers,
@@ -139,6 +145,8 @@ class ChiikawaMonitor:
             )
             
             logger.info(f"Reurl.cc API response status: {response.status_code}")
+            logger.info(f"Response headers: {dict(response.headers)}")
+            logger.info(f"Response body: {response.text}")
             
             if response.status_code == 200:
                 try:
@@ -152,6 +160,11 @@ class ChiikawaMonitor:
                     logger.error(f"Failed to parse JSON response: {e}")
             else:
                 logger.error(f"Reurl.cc API error: {response.status_code}")
+                try:
+                    error_data = response.json()
+                    logger.error(f"Error details: {error_data}")
+                except:
+                    pass
             
             return long_url
             
