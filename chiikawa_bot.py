@@ -23,6 +23,7 @@ from linebot.models import (
     TextComponent, ButtonComponent, URIAction, CarouselContainer,
     ImageComponent
 )
+import time
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -378,81 +379,59 @@ async def new_listings(ctx, days: int = 0):
             await ctx.send(embed=embed)
             return
             
-        # 限制商品数量，防止超出Discord嵌入消息大小限制
-        max_products = 25  # 设置一个合理的上限
-        if len(new_products) > max_products:
-            # 如果商品太多，分批发送
-            batches = [new_products[i:i+max_products] for i in range(0, len(new_products), max_products)]
-            
-            for i, batch in enumerate(batches):
-                embed = discord.Embed(
-                    title=f"{title} ({i+1}/{len(batches)})", 
-                    description=f"共{len(new_products)}个商品上架", 
-                    color=0x00ff00
-                )
-                
-                for product in batch:
-                    time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
-                    # 限制字段内容长度
-                    name = product['name']
-                    if len(name) > 100:  # 限制标题长度
-                        name = name[:97] + "..."
-                    
-                    # 处理标签信息
-                    tags_text = ""
-                    if 'tags' in product and product['tags']:
-                        # 只显示前5个标签，防止过长
-                        tags = product['tags'][:5]
-                        tags_text = f"\n🏷️ {', '.join(tags)}"
-                        if len(product['tags']) > 5:
-                            tags_text += f" ... 等{len(product['tags'])}个标签"
-                    
-                    # 添加价格信息（如果有）
-                    price_text = ""
-                    if 'price' in product and product['price']:
-                        price = product['price']
-                        price_text = f"\n💰 價格: ¥{price:,}"
-                    
-                    availability = "✅ 有貨" if product.get('available', False) else "❌ 缺貨"
-                    
-                    field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
-                    embed.add_field(name=name, value=field_content, inline=False)
-                
-                await ctx.send(embed=embed)
-            
-            return
+        # 商品数量，不设限制
+        total_products = len(new_products)
         
-        # 如果商品数量不多，正常处理
-        embed = discord.Embed(title=title, color=0x00ff00)
-        for product in new_products:
-            time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
-            
-            # 限制字段内容长度
-            name = product['name']
-            if len(name) > 100:  # 限制标题长度
-                name = name[:97] + "..."
-            
-            # 处理标签信息
-            tags_text = ""
-            if 'tags' in product and product['tags']:
-                # 只显示前5个标签，防止过长
-                tags = product['tags'][:5]
-                tags_text = f"\n🏷️ {', '.join(tags)}"
-                if len(product['tags']) > 5:
-                    tags_text += f" ... 等{len(product['tags'])}个标签"
-            
-            # 添加价格信息（如果有）
-            price_text = ""
-            if 'price' in product and product['price']:
-                price = product['price']
-                price_text = f"\n💰 價格: ¥{price:,}"
-            
-            availability = "✅ 有貨" if product.get('available', False) else "❌ 缺貨"
-            
-            field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
-            embed.add_field(name=name, value=field_content, inline=False)
+        # 计算需要分批发送的数量
+        # Discord 嵌入消息限制：每个消息最多 25 个字段，每个字段最大 1024 字符
+        max_fields_per_embed = 25
+        batch_count = (total_products + max_fields_per_embed - 1) // max_fields_per_embed
         
-        await ctx.send(embed=embed)
+        # 分批发送
+        for i in range(batch_count):
+            start_idx = i * max_fields_per_embed
+            end_idx = min(start_idx + max_fields_per_embed, total_products)
+            batch = new_products[start_idx:end_idx]
+            
+            embed = discord.Embed(
+                title=f"{title} ({i+1}/{batch_count})",
+                description=f"共 {total_products} 個商品上架",
+                color=0x00ff00
+            )
+            
+            for product in batch:
+                time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 限制字段内容长度
+                name = product['name']
+                if len(name) > 100:  # 限制标题长度
+                    name = name[:97] + "..."
+                
+                # 处理标签信息
+                tags_text = ""
+                if 'tags' in product and product['tags']:
+                    tags = product['tags']
+                    tags_text = f"\n🏷️ {', '.join(tags[:10])}"
+                    if len(product['tags']) > 10:
+                        tags_text += f" ... 等{len(product['tags'])}个标签"
+                
+                # 添加价格信息（如果有）
+                price_text = ""
+                if 'price' in product and product['price']:
+                    price = product['price']
+                    price_text = f"\n💰 價格: ¥{price:,}"
+                
+                availability = "✅ 有貨" if product.get('available', False) else "❌ 缺貨"
+                
+                field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
+                
+                # 确保字段内容不超过 Discord 限制
+                if len(field_content) > 1024:
+                    field_content = field_content[:1021] + "..."
+                    
+                embed.add_field(name=name, value=field_content, inline=False)
+            
+            await ctx.send(embed=embed)
             
     except Exception as e:
         await ctx.send(f"讀取上架記錄時發生錯誤：{str(e)}")
@@ -482,47 +461,38 @@ async def delisted(ctx, days: int = 0):
             await ctx.send(embed=embed)
             return
         
-        # 限制商品数量，防止超出Discord嵌入消息大小限制
-        max_products = 25  # 设置一个合理的上限
-        if len(delisted_products) > max_products:
-            # 如果商品太多，分批发送
-            batches = [delisted_products[i:i+max_products] for i in range(0, len(delisted_products), max_products)]
-            
-            for i, batch in enumerate(batches):
-                embed = discord.Embed(
-                    title=f"{title} ({i+1}/{len(batches)})", 
-                    description=f"共{len(delisted_products)}个商品下架", 
-                    color=0xff0000
-                )
-                
-                for product in batch:
-                    time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
-                    # 限制字段内容长度
-                    name = product['name']
-                    if len(name) > 100:  # 限制标题长度
-                        name = name[:97] + "..."
-                    
-                    field_content = f"❌ 下架時間: {time_str}\n[商品連結]({product['url']})"
-                    embed.add_field(name=name, value=field_content, inline=False)
-                
-                await ctx.send(embed=embed)
-            
-            return
-            
-        # 如果商品数量不多，正常处理
-        embed = discord.Embed(title=title, color=0xff0000)
-        for product in delisted_products:
-            time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
-            
-            # 限制字段内容长度
-            name = product['name']
-            if len(name) > 100:  # 限制标题长度
-                name = name[:97] + "..."
-                
-            field_content = f"❌ 下架時間: {time_str}\n[商品連結]({product['url']})"
-            embed.add_field(name=name, value=field_content, inline=False)
+        # 商品数量，不设限制
+        total_products = len(delisted_products)
         
-        await ctx.send(embed=embed)
+        # 计算需要分批发送的数量
+        # Discord 嵌入消息限制：每个消息最多 25 个字段，每个字段最大 1024 字符
+        max_fields_per_embed = 25
+        batch_count = (total_products + max_fields_per_embed - 1) // max_fields_per_embed
+        
+        # 分批发送
+        for i in range(batch_count):
+            start_idx = i * max_fields_per_embed
+            end_idx = min(start_idx + max_fields_per_embed, total_products)
+            batch = delisted_products[start_idx:end_idx]
+            
+            embed = discord.Embed(
+                title=f"{title} ({i+1}/{batch_count})",
+                description=f"共 {total_products} 個商品下架",
+                color=0xff0000
+            )
+            
+            for product in batch:
+                time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 限制字段内容长度
+                name = product['name']
+                if len(name) > 100:  # 限制标题长度
+                    name = name[:97] + "..."
+                    
+                field_content = f"❌ 下架時間: {time_str}\n[商品連結]({product['url']})"
+                embed.add_field(name=name, value=field_content, inline=False)
+            
+            await ctx.send(embed=embed)
             
     except Exception as e:
         await ctx.send(f"讀取下架記錄時發生錯誤：{str(e)}")
@@ -886,6 +856,7 @@ async def show_commands(ctx):
         value=(
             "📦 `!上架 [天數]` - 顯示上架的商品，可指定 0-7 天範圍（0表示今天）\n"
             "❌ `!下架 [天數]` - 顯示下架的商品，可指定 0-7 天範圍（0表示今天）\n"
+            "🔄 `!補貨` - 查看即將補貨的商品\n"
             "📅 `!歷史 [天數]` - 顯示指定天數內的商品變更記錄（默認7天）\n"
             "🔧 `!狀態` - 檢查服務運行狀態\n"
             "❓ `!指令` - 顯示可用指令"
@@ -979,6 +950,17 @@ def handle_line_message(event):
         text = event.message.text.lower()
         logger.info(f"收到 LINE 訊息: {text}")
         
+        # 獲取用戶ID
+        user_id = event.source.user_id
+        
+        # 如果用戶輸入"id"或"userid"，則顯示其用戶ID
+        if text == "id" or text == "userid" or text == "用戶id" or text == "我的id":
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"您的LINE用戶ID是：{user_id}")
+            )
+            return
+        
         # 定義支援的指令列表
         commands = ['狀態', '指令']
         
@@ -1036,6 +1018,11 @@ def handle_line_message(event):
                 except ValueError:
                     pass
         
+        # 檢查是否是補貨指令
+        is_restock_command = False
+        if text == '補貨' or text == '預購' or text == '重新上架':
+            is_restock_command = True
+        
         # 檢查是否是支援的指令
         is_command = False
         for cmd in commands:
@@ -1044,17 +1031,19 @@ def handle_line_message(event):
                 break
         
         # 只處理支援的指令,忽略其他訊息
-        if is_command or is_history_command or is_new_command or is_delisted_command:
+        if is_command or is_history_command or is_new_command or is_delisted_command or is_restock_command:
             if is_new_command:
-                handle_line_new_products(event.reply_token, days_new)
+                handle_line_new_products(event, days_new)
             elif is_delisted_command:
-                handle_line_delisted_products(event.reply_token, days_delisted)
+                handle_line_delisted_products(event, days_delisted)
+            elif is_restock_command:
+                handle_line_restock(event)  # 传递完整event对象
             elif text == '狀態':
                 handle_line_status(event.reply_token)
             elif text == '指令':
                 handle_line_help(event.reply_token)
             elif is_history_command:
-                handle_line_history(event.reply_token, days_history)
+                handle_line_history(event, days_history)  # 传递完整event对象和天数
         # 不處理非指令訊息
             
     except Exception as e:
@@ -1068,43 +1057,211 @@ def handle_line_message(event):
         except:
             pass
 
-def handle_line_new_products(reply_token, days):
+def handle_line_new_products(event, days):
     """處理 LINE 上架商品請求"""
-    new_products = monitor.get_period_new_products(days)
-    
-    if not new_products:
-        line_bot_api.reply_message(
-            reply_token,
-            TextSendMessage(text="指定天數內沒有新商品上架")
-        )
-        return
-    
-    # 創建 Flex 消息
-    bubble = create_product_flex_message("指定天數內上架商品", new_products, "🆕")
-    
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text="指定天數內上架商品", contents=bubble)
-    )
+    try:
+        if days == 0:
+            new_products = monitor.get_today_new_products()
+            title = "今日上架商品"
+        else:
+            new_products = monitor.get_period_new_products(days)
+            title = f"近 {days} 天上架商品"
+        
+        if not new_products:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="指定天數內沒有新商品上架")
+            )
+            return
+            
+        # 按日期分組
+        products_by_date = {}
+        for product in new_products:
+            date_str = product['time'].strftime('%Y-%m-%d')
+            if date_str not in products_by_date:
+                products_by_date[date_str] = []
+            products_by_date[date_str].append(product)
+        
+        # 按日期排序（最新的在前）
+        sorted_dates = sorted(products_by_date.keys(), reverse=True)
+        
+        # 准备要发送的消息列表
+        messages = []
+        
+        # 处理每个日期的商品
+        for date_str in sorted_dates:
+            products = products_by_date[date_str]
+            total_count = len(products)
+            
+            # 计算这个日期需要多少个气泡 (每个气泡7个商品)
+            products_per_bubble = 7
+            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            
+            # 如果只需要一个气泡，直接添加
+            if bubbles_needed == 1:
+                bubble = create_product_flex_message(
+                    f"{date_str} 上架商品", 
+                    products, 
+                    "🆕", 
+                    total_count
+                )
+                messages.append(FlexSendMessage(
+                    alt_text=f"{date_str} 上架商品",
+                    contents=bubble
+                ))
+                continue
+            
+            # 如果需要多个气泡，创建轮播
+            date_bubbles = []
+            for i in range(bubbles_needed):
+                start_idx = i * products_per_bubble
+                end_idx = min(start_idx + products_per_bubble, total_count)
+                batch_products = products[start_idx:end_idx]
+                
+                batch_title = f"{date_str} 上架商品 ({i+1}/{bubbles_needed})"
+                bubble = create_product_flex_message(
+                    batch_title, 
+                    batch_products, 
+                    "🆕", 
+                    total_count
+                )
+                date_bubbles.append(bubble)
+            
+            # 创建轮播并添加到消息列表
+            carousel = CarouselContainer(contents=date_bubbles)
+            messages.append(FlexSendMessage(
+                alt_text=f"{date_str} 上架商品",
+                contents=carousel
+            ))
+        
+        # 根据消息数量决定如何发送
+        if len(messages) == 1:
+            # 只有一条消息，直接回复
+            line_bot_api.reply_message(event.reply_token, messages[0])
+        else:
+            # 有多条消息，回复第一条并推送后续消息
+            line_bot_api.reply_message(event.reply_token, messages[0])
+            
+            # 获取用户ID并推送剩余消息
+            user_id = event.source.user_id
+            for msg in messages[1:]:
+                line_bot_api.push_message(user_id, msg)
+                # 避免太快发送触发限制
+                time.sleep(0.5)
+            
+    except Exception as e:
+        logger.error(f"處理上架商品請求時發生錯誤: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="獲取上架商品時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
 
-def handle_line_delisted_products(reply_token, days):
+def handle_line_delisted_products(event, days):
     """處理 LINE 下架商品請求"""
-    delisted_products = monitor.get_period_delisted_products(days)
-    
-    if not delisted_products:
-        line_bot_api.reply_message(
-            reply_token,
-            TextSendMessage(text="指定天數內沒有商品下架")
-        )
-        return
-    
-    # 創建 Flex 消息
-    bubble = create_product_flex_message("指定天數內下架商品", delisted_products, "❌")
-    
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text="指定天數內下架商品", contents=bubble)
-    )
+    try:
+        if days == 0:
+            delisted_products = monitor.get_today_delisted_products()
+            title = "今日下架商品"
+        else:
+            delisted_products = monitor.get_period_delisted_products(days)
+            title = f"近 {days} 天下架商品"
+        
+        if not delisted_products:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="指定天數內沒有商品下架")
+            )
+            return
+            
+        # 按日期分組
+        products_by_date = {}
+        for product in delisted_products:
+            date_str = product['time'].strftime('%Y-%m-%d')
+            if date_str not in products_by_date:
+                products_by_date[date_str] = []
+            products_by_date[date_str].append(product)
+        
+        # 按日期排序（最新的在前）
+        sorted_dates = sorted(products_by_date.keys(), reverse=True)
+        
+        # 准备要发送的消息列表
+        messages = []
+        
+        # 处理每个日期的商品
+        for date_str in sorted_dates:
+            products = products_by_date[date_str]
+            total_count = len(products)
+            
+            # 计算这个日期需要多少个气泡 (每个气泡7个商品)
+            products_per_bubble = 7
+            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            
+            # 如果只需要一个气泡，直接添加
+            if bubbles_needed == 1:
+                bubble = create_product_flex_message(
+                    f"{date_str} 下架商品", 
+                    products, 
+                    "❌", 
+                    total_count
+                )
+                messages.append(FlexSendMessage(
+                    alt_text=f"{date_str} 下架商品",
+                    contents=bubble
+                ))
+                continue
+            
+            # 如果需要多个气泡，创建轮播
+            date_bubbles = []
+            for i in range(bubbles_needed):
+                start_idx = i * products_per_bubble
+                end_idx = min(start_idx + products_per_bubble, total_count)
+                batch_products = products[start_idx:end_idx]
+                
+                batch_title = f"{date_str} 下架商品 ({i+1}/{bubbles_needed})"
+                bubble = create_product_flex_message(
+                    batch_title, 
+                    batch_products, 
+                    "❌", 
+                    total_count
+                )
+                date_bubbles.append(bubble)
+            
+            # 创建轮播并添加到消息列表
+            carousel = CarouselContainer(contents=date_bubbles)
+            messages.append(FlexSendMessage(
+                alt_text=f"{date_str} 下架商品",
+                contents=carousel
+            ))
+        
+        # 根据消息数量决定如何发送
+        if len(messages) == 1:
+            # 只有一条消息，直接回复
+            line_bot_api.reply_message(event.reply_token, messages[0])
+        else:
+            # 有多条消息，回复第一条并推送后续消息
+            line_bot_api.reply_message(event.reply_token, messages[0])
+            
+            # 获取用户ID并推送剩余消息
+            user_id = event.source.user_id
+            for msg in messages[1:]:
+                line_bot_api.push_message(user_id, msg)
+                # 避免太快发送触发限制
+                time.sleep(0.5)
+            
+    except Exception as e:
+        logger.error(f"處理下架商品請求時發生錯誤: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="獲取下架商品時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
 
 def handle_line_status(reply_token):
     """處理 LINE 狀態請求"""
@@ -1133,127 +1290,227 @@ def handle_line_status(reply_token):
         FlexSendMessage(alt_text="服務狀態", contents=bubble)
     )
 
-def handle_line_history(reply_token, days):
+def handle_line_history(event, days):
     """處理 LINE 歷史記錄請求"""
     if days <= 0 or days > 30:
         line_bot_api.reply_message(
-            reply_token,
+            event.reply_token,
             TextSendMessage(text="請指定 1-30 天的範圍")
         )
         return
     
-    # 計算起始時間
-    start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
-    
-    # 獲取歷史記錄
-    history_records = list(monitor.history.find({
-        'date': {'$gte': start_date}
-    }).sort('date', -1))
-    
-    if not history_records:
-        line_bot_api.reply_message(
-            reply_token,
-            TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
-        )
-        return
-    
-    # 按日期分組
-    records_by_date = {}
-    for record in history_records:
-        date_str = record['date'].strftime('%Y-%m-%d')
-        if date_str not in records_by_date:
-            records_by_date[date_str] = []
-        records_by_date[date_str].append(record)
-    
-    # 创建气泡列表
-    bubbles = []
-    dates = list(records_by_date.keys())
-    
-    # 每个气泡显示3天的记录
-    days_per_bubble = 3
-    total_bubbles = (len(dates) + days_per_bubble - 1) // days_per_bubble
-    
-    for bubble_index in range(total_bubbles):
-        start_idx = bubble_index * days_per_bubble
-        end_idx = min(start_idx + days_per_bubble, len(dates))
-        current_dates = dates[start_idx:end_idx]
+    try:
+        # 計算起始時間
+        start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
         
-        # 创建气泡内容
-        contents = [
-            TextComponent(
-                text=f"近 {days} 天的變更記錄 ({bubble_index + 1}/{total_bubbles})", 
-                weight="bold", 
-                size="xl"
+        # 獲取歷史記錄
+        history_records = list(monitor.history.find({
+            'date': {'$gte': start_date}
+        }).sort('date', -1))
+        
+        if not history_records:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
             )
-        ]
+            return
         
-        # 添加每天的记录
-        for date_str in current_dates:
+        # 按日期分組
+        records_by_date = {}
+        for record in history_records:
+            date_str = record['date'].strftime('%Y-%m-%d')
+            if date_str not in records_by_date:
+                records_by_date[date_str] = []
+            records_by_date[date_str].append(record)
+        
+        # 如果只有一天的記錄，直接發送
+        if len(records_by_date) == 1:
+            date_str = list(records_by_date.keys())[0]
             records = records_by_date[date_str]
+            total_count = len(records)
             
-            # 计算每天的记录统计
-            new_count = sum(1 for r in records if r['type'] == 'new')
-            del_count = sum(1 for r in records if r['type'] == 'delisted')
+            # 計算需要的氣泡數量 (每個氣泡10條記錄)
+            records_per_bubble = 10
+            bubbles_needed = (total_count + records_per_bubble - 1) // records_per_bubble
             
-            day_contents = [
-                TextComponent(text=f"📅 {date_str}", weight="bold", margin="md"),
-                TextComponent(text=f"上架: {new_count}件 | 下架: {del_count}件", size="sm", color="#999999")
-            ]
-            
-            # 添加商品记录
-            for record in records:
-                icon = "🆕" if record['type'] == 'new' else "❌"
-                time_str = record['time'].strftime('%H:%M')
-                
-                # 名称可能太长，进行截断
-                name = record['name']
-                if len(name) > 20:
-                    name = name[:17] + "..."
-                    
-                day_contents.append(
-                    TextComponent(
-                        text=f"{icon} {name} ({time_str})",
-                        size="sm",
-                        wrap=True,
-                        action=URIAction(uri=record['url'])
-                    )
+            # 如果只需要一個氣泡
+            if bubbles_needed == 1:
+                bubble = create_history_flex_message(date_str, records, days, total_count)
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    FlexSendMessage(alt_text=f"{date_str} 的變更記錄", contents=bubble)
                 )
+                return
             
+            # 需要多個氣泡，創建輪播
+            bubbles = []
+            for i in range(bubbles_needed):
+                start_idx = i * records_per_bubble
+                end_idx = min(start_idx + records_per_bubble, total_count)
+                batch_records = records[start_idx:end_idx]
+                
+                # 使用序號來標識不同的氣泡
+                bubble_title = f"{date_str} ({i+1}/{bubbles_needed})"
+                bubble = create_history_flex_message(bubble_title, batch_records, days, total_count)
+                bubbles.append(bubble)
+            
+            # 創建輪播
+            carousel = CarouselContainer(contents=bubbles)
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text=f"{date_str} 的變更記錄", contents=carousel)
+            )
+            return
+        
+        # 多日期情況：只顯示最新的一天
+        sorted_dates = sorted(records_by_date.keys(), reverse=True)
+        first_date = sorted_dates[0]
+        records = records_by_date[first_date]
+        total_count = len(records)
+        
+        # 計算第一天需要的氣泡數
+        records_per_bubble = 10
+        bubbles_needed = (total_count + records_per_bubble - 1) // records_per_bubble
+        
+        bubbles = []
+        for i in range(bubbles_needed):
+            start_idx = i * records_per_bubble
+            end_idx = min(start_idx + records_per_bubble, total_count)
+            batch_records = records[start_idx:end_idx]
+            
+            bubble_title = first_date
+            if bubbles_needed > 1:
+                bubble_title += f" ({i+1}/{bubbles_needed})"
+                
+            bubble = create_history_flex_message(bubble_title, batch_records, days, total_count)
+            bubbles.append(bubble)
+        
+        # 創建輪播
+        carousel = CarouselContainer(contents=bubbles)
+        
+        # 針對多日期，只顯示第一天並提示用戶
+        if len(sorted_dates) > 1:
+            extra_text = f"還有其他 {len(sorted_dates)-1} 天的變更記錄。\n請使用「歷史 [天數]」查看特定時間範圍。"
+            extra_message = TextSendMessage(text=extra_text)
+            
+            # 用陣列回復多則訊息
+            line_bot_api.reply_message(
+                event.reply_token,
+                [
+                    FlexSendMessage(alt_text=f"{first_date} 的變更記錄", contents=carousel),
+                    extra_message
+                ]
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text=f"{first_date} 的變更記錄", contents=carousel)
+            )
+            
+    except Exception as e:
+        logger.error(f"處理歷史記錄請求時發生錯誤: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="獲取歷史記錄時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
+
+def create_history_flex_message(date_str, records, days, total_count):
+    """创建单个日期的历史记录 Flex 消息"""
+    # 计算统计数据
+    new_count = sum(1 for r in records if r['type'] == 'new')
+    del_count = sum(1 for r in records if r['type'] == 'delisted')
+    
+    # 创建消息内容
+    contents = [
+        TextComponent(
+            text=f"{date_str} 的變更記錄",
+            weight="bold",
+            size="xl"
+        ),
+        TextComponent(
+            text=f"上架: {new_count}件 | 下架: {del_count}件",
+            size="sm",
+            color="#999999",
+            margin="md"
+        ),
+        TextComponent(
+            text=f"共 {total_count} 個記錄" + (f" (顯示 {len(records)} 個)" if len(records) < total_count else ""),
+            size="sm", 
+            color="#aaaaaa",
+            margin="md"
+        )
+    ]
+    
+    # 按类型和时间排序
+    sorted_records = sorted(records, key=lambda r: (r['type'] != 'new', r['date']))
+    
+    # 添加所有记录
+    for i, record in enumerate(sorted_records):
+        icon = "🆕" if record['type'] == 'new' else "❌"
+        time_str = record['date'].strftime('%H:%M')
+        
+        # 名称可能太长，进行截断
+        name = record['name']
+        if len(name) > 30:
+            name = name[:27] + "..."
+            
+        # 创建记录项
+        item = BoxComponent(
+            layout="horizontal",
+            margin="md",
+            contents=[
+                TextComponent(
+                    text=f"{icon} {time_str}",
+                    size="sm",
+                    flex=3
+                ),
+                TextComponent(
+                    text=name,
+                    size="sm",
+                    flex=7,
+                    wrap=True,
+                    action=URIAction(uri=record['url'])
+                )
+            ]
+        )
+        contents.append(item)
+        
+        # 添加分隔线
+        if i < len(sorted_records) - 1:
             contents.append(
                 BoxComponent(
                     layout="vertical",
-                    margin="md",
-                    contents=day_contents
+                    margin="sm",
+                    height="1px",
+                    backgroundColor="#AAAAAA"
                 )
             )
-        
-        # 添加页码信息
+    
+    # 如果有未顯示的記錄，添加提示
+    if len(records) < total_count:
         contents.append(
             TextComponent(
-                text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
+                text=f"...還有 {total_count - len(records)} 個記錄未顯示",
                 size="sm",
-                color="#999999",
+                color="#AAAAAA",
                 align="center",
                 margin="md"
             )
         )
-        
-        # 创建气泡
-        bubble = BubbleContainer(
-            body=BoxComponent(
-                layout="vertical",
-                contents=contents
-            )
+    
+    # 创建气泡
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=contents
         )
-        bubbles.append(bubble)
-    
-    # 创建轮播容器
-    carousel = CarouselContainer(contents=bubbles)
-    
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text=f"近 {days} 天的變更記錄", contents=carousel)
     )
+    
+    return bubble
 
 def handle_line_help(reply_token):
     """發送 LINE 幫助信息"""
@@ -1261,8 +1518,10 @@ def handle_line_help(reply_token):
         "可用指令：\n"
         "📦 上架 [天數] - 顯示上架商品，可指定 0-7 天範圍（0表示今天）\n"
         "❌ 下架 [天數] - 顯示下架商品，可指定 0-7 天範圍（0表示今天）\n"
+        "🔄 補貨 - 查看即將補貨的商品\n"
         "🔧 狀態 - 檢查服務運行狀態\n"
         "📅 歷史 [天數] - 顯示指定天數內的變更記錄（默認7天）\n"
+        "🆔 id - 顯示您的LINE用戶ID\n"
         "❓ 指令 - 顯示可用指令"
     )
     
@@ -1271,114 +1530,298 @@ def handle_line_help(reply_token):
         TextSendMessage(text=help_text)
     )
 
-def create_product_flex_message(title, products, icon="🆕"):
-    """創建商品 Flex 消息，使用 Carousel 實現分頁"""
-    # 每个气泡最多显示10个商品
-    products_per_bubble = 10
-    bubbles = []
-    
+def create_product_flex_message(title, products, icon="🆕", total_count=None):
+    """創建商品 Flex 消息，使用分頁顯示商品"""
     # 计算需要多少个气泡
-    total_products = len(products)
-    total_bubbles = (total_products + products_per_bubble - 1) // products_per_bubble
+    if total_count is None:
+        total_count = len(products)
     
-    for bubble_index in range(total_bubbles):
-        start_idx = bubble_index * products_per_bubble
-        end_idx = min(start_idx + products_per_bubble, total_products)
-        current_products = products[start_idx:end_idx]
+    # 创建气泡的内容
+    contents = [
+        TextComponent(
+            text=title,
+            weight="bold",
+            size="xl"
+        ),
+        TextComponent(
+            text=f"共 {total_count} 個商品" + (f" (顯示 {len(products)} 個)" if len(products) < total_count else ""),
+            size="sm", 
+            color="#aaaaaa",
+            margin="md"
+        )
+    ]
+    
+    # 添加所有商品
+    for i, product in enumerate(products):
+        time_str = product['time'].strftime('%H:%M:%S')
         
-        # 创建每个气泡的内容
-        contents = [
-            TextComponent(
-                text=f"{title} ({bubble_index + 1}/{total_bubbles})",
-                weight="bold",
-                size="xl"
-            )
-        ]
+        # 截断可能过长的商品名称
+        name = product['name']
+        if len(name) > 30:
+            name = name[:27] + "..."
         
-        for product in current_products:
-            time_str = product['time'].strftime('%H:%M:%S')
-            
-            # 截断可能过长的商品名称
-            name = product['name']
-            if len(name) > 30:
-                name = name[:27] + "..."
-            
-            # 创建商品容器
-            product_box = BoxComponent(
-                layout="horizontal",
-                margin="md",
-                contents=[
-                    # 如果有图片，添加图片组件
-                    BoxComponent(
-                        layout="vertical",
-                        width="72px",
-                        height="72px",
-                        contents=[
-                            ImageComponent(
-                                url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
-                                size="full",
-                                aspect_mode="cover",
-                                aspect_ratio="1:1"
-                            ) if product.get('image_url') else TextComponent(
-                                text="🖼️",
-                                size="xxl",
-                                align="center",
-                                gravity="center"
-                            )
-                        ]
-                    ),
-                    # 商品信息
-                    BoxComponent(
-                        layout="vertical",
-                        flex=1,
-                        margin="md",
-                        spacing="sm",
-                        contents=[
-                            TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
-                            TextComponent(text=f"時間: {time_str}", size="xs", color="#999999")
-                        ]
-                    )
-                ]
+        # 创建商品容器
+        product_box = BoxComponent(
+            layout="horizontal",
+            margin="md",
+            contents=[
+                # 如果有图片，添加图片组件
+                BoxComponent(
+                    layout="vertical",
+                    width="72px",
+                    height="72px",
+                    contents=[
+                        ImageComponent(
+                            url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                            size="full",
+                            aspect_mode="cover",
+                            aspect_ratio="1:1"
+                        ) if product.get('image_url') else TextComponent(
+                            text="🖼️",
+                            size="xxl",
+                            align="center",
+                            gravity="center"
+                        )
+                    ]
+                ),
+                # 商品信息
+                BoxComponent(
+                    layout="vertical",
+                    flex=1,
+                    margin="md",
+                    spacing="sm",
+                    contents=[
+                        TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
+                        TextComponent(text=f"時間: {time_str}", size="xs", color="#999999")
+                    ]
+                )
+            ]
+        )
+        
+        # 添加商品容器
+        contents.append(product_box)
+        
+        # 添加查看按钮
+        contents.append(
+            ButtonComponent(
+                style="link",
+                height="sm",
+                action=URIAction(label="查看商品", uri=product['url'])
             )
-            
-            # 添加商品容器
-            contents.append(product_box)
-            
-            # 添加查看按钮
+        )
+        
+        # 添加分隔线
+        if i < len(products) - 1:
             contents.append(
-                ButtonComponent(
-                    style="link",
-                    height="sm",
-                    action=URIAction(label="查看商品", uri=product['url'])
+                BoxComponent(
+                    layout="vertical",
+                    margin="sm",
+                    height="1px",
+                    backgroundColor="#AAAAAA"
                 )
             )
-        
-        # 添加页码信息
+    
+    # 添加提示信息
+    if len(products) < total_count:
         contents.append(
             TextComponent(
-                text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
+                text=f"...還有 {total_count - len(products)} 個商品未顯示",
                 size="sm",
-                color="#999999",
+                color="#AAAAAA",
                 align="center",
                 margin="md"
             )
         )
-        
-        # 创建气泡容器
-        bubble = BubbleContainer(
-            body=BoxComponent(
-                layout="vertical",
-                contents=contents
-            )
+    
+    # 创建气泡容器
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=contents
         )
-        bubbles.append(bubble)
+    )
     
-    # 如果只有一个气泡，直接返回气泡
-    if len(bubbles) == 1:
-        return bubbles[0]
+    return bubble
+
+def handle_line_restock(event):
+    """處理 LINE 補貨商品請求"""
+    try:
+        # 获取补货商品
+        resale_products = monitor.get_resale_products()
+        
+        if not resale_products:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="目前沒有即將補貨的商品")
+            )
+            return
+        
+        # 按补货日期排序
+        resale_products.sort(key=lambda x: x['next_resale_date'])
+        
+        # 按日期分组
+        products_by_date = {}
+        for product in resale_products:
+            date_str = product['next_resale_date'].strftime('%Y-%m-%d')
+            if date_str not in products_by_date:
+                products_by_date[date_str] = []
+            products_by_date[date_str].append(product)
+        
+        # 按日期排序
+        sorted_dates = sorted(products_by_date.keys())
+        
+        # 准备要发送的消息列表
+        messages = []
+        
+        # 处理每个日期的商品
+        for date_str in sorted_dates:
+            products = products_by_date[date_str]
+            total_count = len(products)
+            
+            # 计算这个日期需要多少个气泡 (每个气泡最多7个商品)
+            products_per_bubble = 7
+            bubbles_needed = (total_count + products_per_bubble - 1) // products_per_bubble
+            
+            # 如果只需要一个气泡，直接添加
+            if bubbles_needed == 1:
+                bubble = create_restock_date_bubble(date_str, products, total_count)
+                messages.append(FlexSendMessage(
+                    alt_text=f"{date_str} 即將補貨的商品",
+                    contents=bubble
+                ))
+                continue
+            
+            # 如果需要多个气泡，创建轮播
+            date_bubbles = []
+            for i in range(bubbles_needed):
+                start_idx = i * products_per_bubble
+                end_idx = min(start_idx + products_per_bubble, total_count)
+                batch_products = products[start_idx:end_idx]
+                
+                batch_title = f"{date_str} ({i+1}/{bubbles_needed})"
+                bubble = create_restock_date_bubble(batch_title, batch_products, total_count)
+                date_bubbles.append(bubble)
+            
+            # 创建轮播并添加到消息列表
+            carousel = CarouselContainer(contents=date_bubbles)
+            messages.append(FlexSendMessage(
+                alt_text=f"{date_str} 即將補貨的商品",
+                contents=carousel
+            ))
+        
+        # 根据消息数量决定如何发送
+        if len(messages) == 1:
+            # 只有一条消息，直接回复
+            line_bot_api.reply_message(event.reply_token, messages[0])
+        else:
+            # 有多条消息，回复第一条并推送后续消息
+            line_bot_api.reply_message(event.reply_token, messages[0])
+            
+            # 获取用户ID并推送剩余消息
+            user_id = event.source.user_id
+            for msg in messages[1:]:
+                line_bot_api.push_message(user_id, msg)
+                # 避免太快发送触发限制
+                time.sleep(0.5)
+            
+    except Exception as e:
+        logger.error(f"處理補貨商品請求時發生錯誤: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="獲取補貨商品時發生錯誤，請稍後再試。")
+            )
+        except:
+            pass
+
+def create_restock_date_bubble(date_str, products, total_count):
+    """创建特定日期的补货商品气泡"""
+    # 计算与当前日期的差距
+    current_date = datetime.now(TW_TIMEZONE).date()
+    restock_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    days_diff = (restock_date - current_date).days
     
-    # 否则返回轮播容器
-    return CarouselContainer(contents=bubbles)
+    if days_diff == 0:
+        date_display = f"今天 ({date_str})"
+    elif days_diff == 1:
+        date_display = f"明天 ({date_str})"
+    elif days_diff > 0:
+        date_display = f"{days_diff} 天後 ({date_str})"
+    else:
+        date_display = date_str
+    
+    # 创建气泡头部
+    contents = [
+        TextComponent(
+            text="即將補貨的商品",
+            weight="bold",
+            size="xl"
+        ),
+        TextComponent(
+            text=f"補貨日期: {date_display}",
+            size="md",
+            color="#888888",
+            margin="md"
+        ),
+        TextComponent(
+            text=f"共 {total_count} 個商品",
+            size="sm", 
+            color="#aaaaaa",
+            margin="md"
+        )
+    ]
+    
+    # 添加商品 - 不限制数量，显示所有商品
+    for i, product in enumerate(products):
+        name = product['name']
+        if len(name) > 30:
+            name = name[:27] + "..."
+            
+        # 添加商品容器
+        product_box = BoxComponent(
+            layout="vertical",
+            margin="lg",
+            contents=[
+                TextComponent(
+                    text=name,
+                    weight="bold",
+                    size="sm",
+                    wrap=True
+                ),
+                ButtonComponent(
+                    style="link",
+                    height="sm",
+                    action=URIAction(
+                        label="查看商品",
+                        uri=product['url']
+                    )
+                )
+            ]
+        )
+        
+        contents.append(product_box)
+        
+        # 添加分隔线
+        if i < len(products) - 1:
+            contents.append(
+                BoxComponent(
+                    layout="vertical",
+                    margin="sm",
+                    height="1px",
+                    backgroundColor="#AAAAAA"
+                )
+            )
+    
+    # 创建气泡容器
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=contents
+        )
+    )
+    
+    return bubble
 
 # 運行 Bot
 if __name__ == "__main__":
