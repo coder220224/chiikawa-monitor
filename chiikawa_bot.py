@@ -1047,7 +1047,7 @@ def handle_line_delisted_products(reply_token):
         
         # 创建当前批次的Flex消息
         carousel = create_product_flex_message(
-            f"今日下架商品 ({carousel_index + 1}/{total_carousels})", 
+            f"今日下架商品",  # 移除批次编号，只在底部显示页码
             current_batch, 
             "❌"
         )
@@ -1281,8 +1281,8 @@ def create_product_flex_message(title, products, icon="🆕"):
                             # 图片容器（固定宽度，无margin）
                             BoxComponent(
                                 layout="vertical",
-                                width="72px",
-                                height="72px",
+                                width="40px",
+                                height="40px",
                                 flex=0,
                                 contents=[
                                     ImageComponent(
