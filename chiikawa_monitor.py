@@ -42,10 +42,6 @@ class ChiikawaMonitor:
         self.work_dir = os.path.dirname(os.path.abspath(__file__))
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
-        # Reurl.cc API setup
-        self.reurl_api_key = "4070ff49d794e73010563b663c974755ecd6bf31959304df8a38b58d6516556389"
-        self.reurl_api_url = "https://api.reurl.cc"
-        
         # ImgBB API setup
         self.imgbb_api_key = os.environ.get('IMGBB_API_KEY', '')  # 從環境變量獲取
         self.imgbb_api_url = "https://api.imgbb.com/1/upload"
@@ -122,70 +118,16 @@ class ChiikawaMonitor:
             logger.error(f"更新 Excel 時發生錯誤：{str(e)}")
             return False
 
-    def shorten_url_with_reurl(self, long_url):
-        """使用 reurl.cc API 縮短 URL"""
-        try:
-            headers = {
-                'Content-Type': 'application/json',
-                'reurl-api-key': self.reurl_api_key
-            }
-            
-            # 只包含必要的參數
-            payload = {
-                'url': long_url
-            }
-            
-            # 打印請求信息
-            logger.info(f"Sending request to Reurl.cc API:")
-            logger.info(f"URL: {self.reurl_api_url}/shorten")
-            logger.info(f"Headers: {headers}")
-            logger.info(f"Payload: {payload}")
-            
-            response = requests.post(
-                f"{self.reurl_api_url}/shorten",
-                headers=headers,
-                json=payload,
-                timeout=10
-            )
-            
-            logger.info(f"Reurl.cc API response status: {response.status_code}")
-            logger.info(f"Response headers: {dict(response.headers)}")
-            logger.info(f"Response body: {response.text}")
-            
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    if 'short_url' in data:
-                        logger.info(f"Successfully shortened URL: {data['short_url']}")
-                        return data['short_url']
-                    else:
-                        logger.error(f"No short_url in response: {data}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON response: {e}")
-            else:
-                logger.error(f"Reurl.cc API error: {response.status_code}")
-                try:
-                    error_data = response.json()
-                    logger.error(f"Error details: {error_data}")
-                except:
-                    pass
-            
-            return long_url
-            
-        except Exception as e:
-            logger.error(f"Error shortening URL with Reurl.cc: {str(e)}")
-            return long_url
-
     def upload_to_imgbb(self, image_url):
         """上傳圖片到 ImgBB"""
         try:
             if not image_url or not self.imgbb_api_key:
-                return image_url
+                return None
 
             # 下載圖片
             response = requests.get(image_url, verify=False)
             if response.status_code != 200:
-                return image_url
+                return None
 
             # 準備上傳到 ImgBB
             files = {
@@ -207,23 +149,22 @@ class ChiikawaMonitor:
                 if result.get('success'):
                     return result['data']['url']
 
-            return image_url
+            return None
 
         except Exception as e:
             logger.error(f"上傳圖片到 ImgBB 時發生錯誤：{str(e)}")
-            return image_url
+            return None
 
-    def shorten_image_url(self, original_url):
-        """處理圖片 URL"""
+    def process_image_url(self, original_url):
+        """處理圖片 URL，上傳到 ImgBB"""
         try:
             # 如果原始URL為空，返回空
             if not original_url:
-                return original_url
+                return None
             
             # 如果是 Shopify URL，先優化它
             if 'cdn.shopify.com' in original_url:
                 optimized_url = f"{original_url.split('?')[0]}?width=100&height=100"
-                # 上傳到 ImgBB
                 return self.upload_to_imgbb(optimized_url)
             
             # 對於其他 URL，直接上傳到 ImgBB
@@ -231,7 +172,7 @@ class ChiikawaMonitor:
             
         except Exception as e:
             logger.error(f"處理圖片 URL 時發生錯誤：{str(e)}")
-            return original_url
+            return None
 
     def fetch_products(self):
         """獲取所有商品信息"""
@@ -338,16 +279,16 @@ class ChiikawaMonitor:
                             title = product.get('title', '')
                             variants = product.get('variants', [])
                             
-                            # 获取商品图片URL并上传到Imgur
+                            # 获取商品图片URL并上传到ImgBB
                             image_url = None
                             if 'images' in product and product['images']:
                                 image = product['images'][0]
                                 if isinstance(image, dict) and 'src' in image:
                                     original_url = image['src']
-                                    image_url = self.shorten_image_url(original_url)
-                                    logger.info(f"圖片 URL 已轉換: {original_url} -> {image_url}")
+                                    image_url = self.process_image_url(original_url)
+                                    logger.info(f"圖片已上傳到 ImgBB: {image_url}")
                                 elif isinstance(image, str):
-                                    image_url = self.shorten_image_url(image)
+                                    image_url = self.process_image_url(image)
                             
                             price = 0
                             available = False
@@ -420,15 +361,10 @@ class ChiikawaMonitor:
                 'type': type_,
                 'name': product['name'],
                 'url': product['url'],
-                'image_url': product.get('image_url'),  # 添加图片URL
+                'image_url': product.get('image_url'),  # 已經是 ImgBB 的 URL
                 'time': datetime.now(TW_TIMEZONE)
             }
             self.history.insert_one(history_data)
-            
-            # 如果有圖片 URL，確保使用短 URL
-            if 'image_url' in product:
-                product['image_url'] = self.shorten_image_url(product['image_url'])
-            
             return True
         except Exception as e:
             logger.error(f"記錄歷史時發生錯誤：{str(e)}")
