@@ -20,7 +20,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     FlexSendMessage, BubbleContainer, BoxComponent,
-    TextComponent, ButtonComponent, URIAction, CarouselContainer
+    TextComponent, ButtonComponent, URIAction, CarouselContainer,
+    ImageComponent
 )
 
 # 設定台灣時區
@@ -978,15 +979,8 @@ def handle_line_new_products(reply_token):
         )
         return
     
-    # 限制商品数量，避免消息过大
-    max_products = 20  # 设置合理的上限
-    if len(new_products) > max_products:
-        new_products = new_products[:max_products]
-    
     # 創建 Flex 消息
-    bubble = create_product_flex_message(f"今日上架商品 (顯示前{max_products}個)" 
-        if len(new_products) > max_products else "今日上架商品", 
-        new_products, "🆕")
+    bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
     
     line_bot_api.reply_message(
         reply_token,
@@ -1004,15 +998,8 @@ def handle_line_delisted_products(reply_token):
         )
         return
     
-    # 限制商品数量，避免消息过大
-    max_products = 20  # 设置合理的上限
-    if len(delisted_products) > max_products:
-        delisted_products = delisted_products[:max_products]
-        
     # 創建 Flex 消息
-    bubble = create_product_flex_message(f"今日下架商品 (顯示前{max_products}個)" 
-        if len(delisted_products) > max_products else "今日下架商品", 
-        delisted_products, "❌")
+    bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
     
     line_bot_api.reply_message(
         reply_token,
@@ -1215,20 +1202,54 @@ def create_product_flex_message(title, products, icon="🆕"):
             name = product['name']
             if len(name) > 30:
                 name = name[:27] + "..."
-                
+            
+            # 创建商品容器
+            product_box = BoxComponent(
+                layout="horizontal",
+                margin="md",
+                contents=[
+                    # 如果有图片，添加图片组件
+                    BoxComponent(
+                        layout="vertical",
+                        width="72px",
+                        height="72px",
+                        contents=[
+                            ImageComponent(
+                                url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                                size="full",
+                                aspect_mode="cover",
+                                aspect_ratio="1:1"
+                            ) if product.get('image_url') else TextComponent(
+                                text="🖼️",
+                                size="xxl",
+                                align="center",
+                                gravity="center"
+                            )
+                        ]
+                    ),
+                    # 商品信息
+                    BoxComponent(
+                        layout="vertical",
+                        flex=1,
+                        margin="md",
+                        spacing="sm",
+                        contents=[
+                            TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
+                            TextComponent(text=f"時間: {time_str}", size="xs", color="#999999")
+                        ]
+                    )
+                ]
+            )
+            
+            # 添加商品容器
+            contents.append(product_box)
+            
+            # 添加查看按钮
             contents.append(
-                BoxComponent(
-                    layout="vertical",
-                    margin="md",
-                    contents=[
-                        TextComponent(text=f"{icon} {name}", weight="bold", wrap=True),
-                        TextComponent(text=f"時間: {time_str}", size="sm", color="#999999"),
-                        ButtonComponent(
-                            style="link",
-                            height="sm",
-                            action=URIAction(label="查看商品", uri=product['url'])
-                        )
-                    ]
+                ButtonComponent(
+                    style="link",
+                    height="sm",
+                    action=URIAction(label="查看商品", uri=product['url'])
                 )
             )
         
