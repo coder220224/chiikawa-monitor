@@ -46,6 +46,10 @@ class ChiikawaMonitor:
         self.reurl_api_key = "4070ff49d794e73010563b663c974755ecd6bf31959304df8a38b58d6516556389"
         self.reurl_api_url = "https://api.reurl.cc"
         
+        # ImgBB API setup
+        self.imgbb_api_key = os.environ.get('IMGBB_API_KEY', '')  # 從環境變量獲取
+        self.imgbb_api_url = "https://api.imgbb.com/1/upload"
+        
         # MongoDB 設置
         try:
             self.client = MongoClient(
@@ -172,8 +176,45 @@ class ChiikawaMonitor:
             logger.error(f"Error shortening URL with Reurl.cc: {str(e)}")
             return long_url
 
+    def upload_to_imgbb(self, image_url):
+        """上傳圖片到 ImgBB"""
+        try:
+            if not image_url or not self.imgbb_api_key:
+                return image_url
+
+            # 下載圖片
+            response = requests.get(image_url, verify=False)
+            if response.status_code != 200:
+                return image_url
+
+            # 準備上傳到 ImgBB
+            files = {
+                'image': response.content
+            }
+            params = {
+                'key': self.imgbb_api_key
+            }
+
+            # 上傳到 ImgBB
+            upload_response = requests.post(
+                self.imgbb_api_url,
+                params=params,
+                files=files
+            )
+
+            if upload_response.status_code == 200:
+                result = upload_response.json()
+                if result.get('success'):
+                    return result['data']['url']
+
+            return image_url
+
+        except Exception as e:
+            logger.error(f"上傳圖片到 ImgBB 時發生錯誤：{str(e)}")
+            return image_url
+
     def shorten_image_url(self, original_url):
-        """縮短圖片 URL"""
+        """處理圖片 URL"""
         try:
             # 如果原始URL為空，返回空
             if not original_url:
@@ -182,14 +223,14 @@ class ChiikawaMonitor:
             # 如果是 Shopify URL，先優化它
             if 'cdn.shopify.com' in original_url:
                 optimized_url = f"{original_url.split('?')[0]}?width=100&height=100"
-                # 使用 reurl.cc 縮短優化後的 URL
-                return self.shorten_url_with_reurl(optimized_url)
+                # 上傳到 ImgBB
+                return self.upload_to_imgbb(optimized_url)
             
-            # 對於其他 URL，直接使用 reurl.cc 縮短
-            return self.shorten_url_with_reurl(original_url)
+            # 對於其他 URL，直接上傳到 ImgBB
+            return self.upload_to_imgbb(original_url)
             
         except Exception as e:
-            logger.error(f"Error in shorten_image_url: {str(e)}")
+            logger.error(f"處理圖片 URL 時發生錯誤：{str(e)}")
             return original_url
 
     def fetch_products(self):
