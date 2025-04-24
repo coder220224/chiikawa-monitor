@@ -38,7 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 从环境变量获取 LINE Bot 配置
+# 從環境變數獲取 LINE Bot 配置
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', '')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 
@@ -375,19 +375,19 @@ async def new_listings(ctx, days: int = 0):
             title = f"近 {days} 天上架商品"
         
         if not new_products:
-            embed = discord.Embed(title=title, description=f"指定时间内没有新商品上架", color=0xff0000)
+            embed = discord.Embed(title=title, description=f"指定時間內沒有新商品上架", color=0xff0000)
             await ctx.send(embed=embed)
             return
             
-        # 商品数量，不设限制
+        # 商品數量，不設限制
         total_products = len(new_products)
         
-        # 计算需要分批发送的数量
-        # Discord 嵌入消息限制：每个消息最多 25 个字段，每个字段最大 1024 字符
+        # 計算需要分批發送的數量
+        # Discord 嵌入消息限制：每個消息最多 25 個字段，每個字段最大 1024 字符
         max_fields_per_embed = 25
         batch_count = (total_products + max_fields_per_embed - 1) // max_fields_per_embed
         
-        # 分批发送
+        # 分批發送
         for i in range(batch_count):
             start_idx = i * max_fields_per_embed
             end_idx = min(start_idx + max_fields_per_embed, total_products)
@@ -407,15 +407,15 @@ async def new_listings(ctx, days: int = 0):
                 if len(name) > 100:  # 限制标题长度
                     name = name[:97] + "..."
                 
-                # 处理标签信息
+                # 處理標籤信息
                 tags_text = ""
                 if 'tags' in product and product['tags']:
                     tags = product['tags']
                     tags_text = f"\n🏷️ {', '.join(tags[:10])}"
                     if len(product['tags']) > 10:
-                        tags_text += f" ... 等{len(product['tags'])}个标签"
+                        tags_text += f" ... 等{len(product['tags'])}個標籤"
                 
-                # 添加价格信息（如果有）
+                # 添加價格信息（如果有）
                 price_text = ""
                 if 'price' in product and product['price']:
                     price = product['price']
@@ -425,7 +425,7 @@ async def new_listings(ctx, days: int = 0):
                 
                 field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
                 
-                # 确保字段内容不超过 Discord 限制
+                # 確保字段內容不超過 Discord 限制
                 if len(field_content) > 1024:
                     field_content = field_content[:1021] + "..."
                     
@@ -457,19 +457,19 @@ async def delisted(ctx, days: int = 0):
             title = f"近 {days} 天下架商品"
         
         if not delisted_products:
-            embed = discord.Embed(title=title, description=f"指定时间内没有商品下架", color=0xff0000)
+            embed = discord.Embed(title=title, description=f"指定時間內沒有商品下架", color=0xff0000)
             await ctx.send(embed=embed)
             return
         
-        # 商品数量，不设限制
+        # 商品數量，不設限制
         total_products = len(delisted_products)
         
-        # 计算需要分批发送的数量
-        # Discord 嵌入消息限制：每个消息最多 25 个字段，每个字段最大 1024 字符
+        # 計算需要分批發送的數量
+        # Discord 嵌入消息限制：每個消息最多 25 個字段，每個字段最大 1024 字符
         max_fields_per_embed = 25
         batch_count = (total_products + max_fields_per_embed - 1) // max_fields_per_embed
         
-        # 分批发送
+        # 分批發送
         for i in range(batch_count):
             start_idx = i * max_fields_per_embed
             end_idx = min(start_idx + max_fields_per_embed, total_products)
@@ -774,45 +774,45 @@ async def history(ctx, days: int = 7):
         total_new = sum(len(r['new']) for r in records_by_date.values())
         total_del = sum(len(r['delisted']) for r in records_by_date.values())
         
-        # 拆分发送，每个嵌入消息最多包含5天的数据
+        # 拆分發送，每個嵌入消息最多包含5天的數據
         date_chunks = list(records_by_date.keys())
         max_days_per_embed = 5
         date_batches = [date_chunks[i:i+max_days_per_embed] for i in range(0, len(date_chunks), max_days_per_embed)]
         
         for i, date_batch in enumerate(date_batches):
-            # 创建嵌入消息
+            # 創建嵌入消息
             embed = discord.Embed(
                 title=f"近 {days} 天的商品變更記錄 ({i+1}/{len(date_batches)})",
                 description=f"從 {start_date.strftime('%Y-%m-%d')} 到現在",
                 color=0x00ff00
             )
             
-            # 添加每天的记录
+            # 添加每天的記錄
             for date_str in date_batch:
                 records = records_by_date[date_str]
                 day_text = []
                 
                 if records['new']:
-                    # 限制每天显示的项目数量
+                    # 限制每天顯示的項目數量
                     max_items_per_type = 20
                     new_items = records['new'][:max_items_per_type]
                     new_text = [f"🆕 {r['name']}" for r in new_items]
                     if len(records['new']) > max_items_per_type:
-                        new_text.append(f"...还有 {len(records['new']) - max_items_per_type} 个商品")
+                        new_text.append(f"...還有 {len(records['new']) - max_items_per_type} 個商品")
                     day_text.extend(new_text)
                     
                 if records['delisted']:
-                    # 限制每天显示的项目数量
+                    # 限制每天顯示的項目數量
                     max_items_per_type = 20
                     del_items = records['delisted'][:max_items_per_type]
                     del_text = [f"❌ {r['name']}" for r in del_items]
                     if len(records['delisted']) > max_items_per_type:
-                        del_text.append(f"...还有 {len(records['delisted']) - max_items_per_type} 个商品")
+                        del_text.append(f"...還有 {len(records['delisted']) - max_items_per_type} 個商品")
                     day_text.extend(del_text)
                 
                 if day_text:
                     field_text = "\n".join(day_text)
-                    # 检查并截断字段值，Discord限制每个字段值最大为1024字节
+                    # 檢查並截斷字段值，Discord限制每個字段值最大為1024字節
                     if len(field_text) > 1024:
                         field_text = field_text[:1021] + "..."
                         
@@ -822,7 +822,7 @@ async def history(ctx, days: int = 7):
                         inline=False
                     )
             
-            # 在最后一个嵌入消息中添加统计信息
+            # 在最後一個嵌入消息中添加統計信息
             if i == len(date_batches) - 1:
                 embed.add_field(
                     name="📊 統計信息",
@@ -913,7 +913,7 @@ async def setup_webserver():
     app.router.add_get('/', healthcheck)
     app.router.add_get('/health', healthcheck)  # 添加 /health 端點
     
-    # 添加 LINE Bot Webhook 处理
+    # 添加 LINE Bot Webhook 處理
     app.router.add_post('/line/webhook', handle_line_webhook)
     
     runner = web.AppRunner(app)
@@ -926,20 +926,20 @@ async def setup_webserver():
     logger.info("LINE Bot Webhook 端點已配置: /line/webhook")
 
 async def handle_line_webhook(request):
-    """处理 LINE Webhook 请求"""
+    """處理 LINE Webhook 請求"""
     try:
         signature = request.headers.get('X-Line-Signature', '')
         body = await request.text()
         
-        # 处理 webhook
+        # 處理 webhook
         line_handler.handle(body, signature)
         
         return web.Response(text='OK')
     except InvalidSignatureError:
-        logger.error("LINE Webhook 签名无效")
+        logger.error("LINE Webhook 簽名無效")
         return web.Response(status=400, text='Invalid signature')
     except Exception as e:
-        logger.error(f"处理 LINE Webhook 时发生错误: {str(e)}")
+        logger.error(f"處理 LINE Webhook 時發生錯誤: {str(e)}")
         logger.error(traceback.format_exc())
         return web.Response(status=500, text='Internal Server Error')
 
@@ -1055,14 +1055,14 @@ def handle_line_new_products(event, days):
         else:
             new_products = monitor.get_period_new_products(days)
             title = f"近 {days} 天上架商品"
-        
+    
         if not new_products:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="指定天數內沒有新商品上架")
             )
             return
-            
+    
         # 按日期分組
         products_by_date = {}
         for product in new_products:
@@ -1074,10 +1074,10 @@ def handle_line_new_products(event, days):
         # 按日期排序（最新的在前）
         sorted_dates = sorted(products_by_date.keys(), reverse=True)
         
-        # 准备要发送的消息列表
+        # 準備要發送的消息列表
         messages = []
         
-        # 处理每个日期的商品
+        # 處理每個日期的商品
         for date_str in sorted_dates:
             products = products_by_date[date_str]
             total_count = len(products)
@@ -1086,7 +1086,7 @@ def handle_line_new_products(event, days):
             date_title = f"{date_str} 上架商品 (共{total_count}件)"
             messages.append(TextSendMessage(text=date_title))
             
-            # 每10个商品一组，使用Image Carousel显示
+            # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
             carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
             
@@ -1100,19 +1100,19 @@ def handle_line_new_products(event, days):
                 if carousel:
                     messages.append(carousel)
         
-        # 根据消息数量决定如何发送
+        # 根據消息數量決定如何發送
         if len(messages) == 1:
-            # 只有一条消息，直接回复
+            # 只有一條消息，直接回覆
             line_bot_api.reply_message(event.reply_token, messages[0])
         else:
-            # 有多条消息，回复第一条并推送后续消息
+            # 有多條消息，回覆第一條並推送後續消息
             line_bot_api.reply_message(event.reply_token, messages[0])
             
-            # 获取用户ID并推送剩余消息
+            # 獲取用戶ID並推送剩餘消息
             user_id = event.source.user_id
             for msg in messages[1:]:
                 line_bot_api.push_message(user_id, msg)
-                # 避免太快发送触发限制
+                # 避免太快發送觸發限制
                 time.sleep(0.5)
             
     except Exception as e:
@@ -1135,14 +1135,14 @@ def handle_line_delisted_products(event, days):
         else:
             delisted_products = monitor.get_period_delisted_products(days)
             title = f"近 {days} 天下架商品"
-        
+    
         if not delisted_products:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="指定天數內沒有商品下架")
             )
             return
-            
+    
         # 按日期分組
         products_by_date = {}
         for product in delisted_products:
@@ -1154,10 +1154,10 @@ def handle_line_delisted_products(event, days):
         # 按日期排序（最新的在前）
         sorted_dates = sorted(products_by_date.keys(), reverse=True)
         
-        # 准备要发送的消息列表
+        # 準備要發送的消息列表
         messages = []
         
-        # 处理每个日期的商品
+        # 處理每個日期的商品
         for date_str in sorted_dates:
             products = products_by_date[date_str]
             total_count = len(products)
@@ -1166,7 +1166,7 @@ def handle_line_delisted_products(event, days):
             date_title = f"{date_str} 下架商品 (共{total_count}件)"
             messages.append(TextSendMessage(text=date_title))
             
-            # 每10个商品一组，使用Image Carousel显示
+            # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
             carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
             
@@ -1180,19 +1180,19 @@ def handle_line_delisted_products(event, days):
                 if carousel:
                     messages.append(carousel)
         
-        # 根据消息数量决定如何发送
+        # 根據消息數量決定如何發送
         if len(messages) == 1:
-            # 只有一条消息，直接回复
+            # 只有一條消息，直接回覆
             line_bot_api.reply_message(event.reply_token, messages[0])
         else:
-            # 有多条消息，回复第一条并推送后续消息
+            # 有多條消息，回覆第一條並推送後續消息
             line_bot_api.reply_message(event.reply_token, messages[0])
             
-            # 获取用户ID并推送剩余消息
+            # 獲取用戶ID並推送剩餘消息
             user_id = event.source.user_id
             for msg in messages[1:]:
                 line_bot_api.push_message(user_id, msg)
-                # 避免太快发送触发限制
+                # 避免太快發送觸發限制
                 time.sleep(0.5)
             
     except Exception as e:
@@ -1269,14 +1269,14 @@ def handle_line_history(event, days):
         # 按日期排序（最新的在前）
         sorted_dates = sorted(records_by_date.keys(), reverse=True)
         
-        # 准备要发送的消息列表
+        # 準備要發送的消息列表
         messages = []
         
-        # 处理每个日期的记录
+        # 處理每個日期的記錄
         for date_str in sorted_dates:
             records = records_by_date[date_str]
             
-            # 統計每种类型的商品数量
+            # 統計每種類型的商品數量
             new_count = len(records['new'])
             del_count = len(records['delisted'])
             
@@ -1284,15 +1284,15 @@ def handle_line_history(event, days):
             date_title = f"{date_str} 商品變更記錄 (上架: {new_count}件 | 下架: {del_count}件)"
             messages.append(TextSendMessage(text=date_title))
             
-            # 处理上架商品 (如果有的话)
+            # 處理上架商品 (如果有的話)
             if new_count > 0:
                 new_products = records['new']
                 
-                # 每10个商品一组，使用Image Carousel显示
+                # 每10個商品一組，使用Image Carousel顯示
                 items_per_carousel = 10
                 carousel_count = (new_count + items_per_carousel - 1) // items_per_carousel
                 
-                # 如果需要发送多个Image Carousel，先发送一个小标题
+                # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
                     messages.append(TextSendMessage(text=f"🆕 上架商品 ({new_count}件)"))
                 
@@ -1306,15 +1306,15 @@ def handle_line_history(event, days):
                     if carousel:
                         messages.append(carousel)
             
-            # 处理下架商品 (如果有的话)
+            # 處理下架商品 (如果有的話)
             if del_count > 0:
                 del_products = records['delisted']
                 
-                # 每10个商品一组，使用Image Carousel显示
+                # 每10個商品一組，使用Image Carousel顯示
                 items_per_carousel = 10
                 carousel_count = (del_count + items_per_carousel - 1) // items_per_carousel
                 
-                # 如果需要发送多个Image Carousel，先发送一个小标题
+                # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
                     messages.append(TextSendMessage(text=f"❌ 下架商品 ({del_count}件)"))
                 
@@ -1328,19 +1328,19 @@ def handle_line_history(event, days):
                     if carousel:
                         messages.append(carousel)
         
-        # 根据消息数量决定如何发送
+        # 根據消息數量決定如何發送
         if len(messages) == 1:
-            # 只有一条消息，直接回复
+            # 只有一條消息，直接回覆
             line_bot_api.reply_message(event.reply_token, messages[0])
         else:
-            # 有多条消息，回复第一条并推送后续消息
+            # 有多條消息，回覆第一條並推送後續消息
             line_bot_api.reply_message(event.reply_token, messages[0])
             
-            # 获取用户ID并推送剩余消息
+            # 獲取用戶ID並推送剩餘消息
             user_id = event.source.user_id
             for msg in messages[1:]:
                 line_bot_api.push_message(user_id, msg)
-                # 避免太快发送触发限制
+                # 避免太快發送觸發限制
                 time.sleep(0.5)
             
     except Exception as e:
@@ -1415,7 +1415,7 @@ def handle_line_help(reply_token):
 def handle_line_restock(event):
     """處理 LINE 補貨商品請求 (使用Image Carousel)"""
     try:
-        # 获取补货商品
+        # 獲取補貨商品
         resale_products = monitor.get_resale_products()
         
         if not resale_products:
@@ -1425,10 +1425,10 @@ def handle_line_restock(event):
             )
             return
         
-        # 按补货日期排序
+        # 按補貨日期排序
         resale_products.sort(key=lambda x: x['next_resale_date'])
         
-        # 按日期分组
+        # 按日期分組
         products_by_date = {}
         for product in resale_products:
             date_str = product['next_resale_date'].strftime('%Y-%m-%d')
@@ -1439,10 +1439,10 @@ def handle_line_restock(event):
         # 按日期排序
         sorted_dates = sorted(products_by_date.keys())
         
-        # 准备要发送的消息列表
+        # 準備要發送的消息列表
         messages = []
         
-        # 处理每个日期的商品
+        # 處理每個日期的商品
         for date_str in sorted_dates:
             products = products_by_date[date_str]
             total_count = len(products)
@@ -1466,7 +1466,7 @@ def handle_line_restock(event):
             date_title = f"補貨日期: {date_display} (共{total_count}件)"
             messages.append(TextSendMessage(text=date_title))
             
-            # 每10个商品一组，使用Image Carousel显示
+            # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
             carousel_count = (total_count + items_per_carousel - 1) // items_per_carousel
             
@@ -1480,19 +1480,19 @@ def handle_line_restock(event):
                 if carousel:
                     messages.append(carousel)
         
-        # 根据消息数量决定如何发送
+        # 根據消息數量決定如何發送
         if len(messages) == 1:
-            # 只有一条消息，直接回复
+            # 只有一條消息，直接回覆
             line_bot_api.reply_message(event.reply_token, messages[0])
         else:
-            # 有多条消息，回复第一条并推送后续消息
+            # 有多條消息，回覆第一條並推送後續消息
             line_bot_api.reply_message(event.reply_token, messages[0])
             
-            # 获取用户ID并推送剩余消息
+            # 獲取用戶ID並推送剩餘消息
             user_id = event.source.user_id
             for msg in messages[1:]:
                 line_bot_api.push_message(user_id, msg)
-                # 避免太快发送触发限制
+                # 避免太快發送觸發限制
                 time.sleep(0.5)
             
     except Exception as e:
