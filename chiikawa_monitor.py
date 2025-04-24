@@ -126,6 +126,7 @@ class ChiikawaMonitor:
                 'reurl-api-key': self.reurl_api_key
             }
             
+            # 只包含必要的參數
             payload = {
                 'url': long_url
             }
@@ -133,19 +134,26 @@ class ChiikawaMonitor:
             response = requests.post(
                 f"{self.reurl_api_url}/shorten",
                 headers=headers,
-                json=payload
+                json=payload,
+                timeout=10
             )
             
+            logger.info(f"Reurl.cc API response status: {response.status_code}")
+            
             if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'ok':
-                    return data.get('short_url')
-                else:
-                    logger.error(f"Reurl.cc API error: {data.get('message')}")
-                    return long_url
+                try:
+                    data = response.json()
+                    if 'short_url' in data:
+                        logger.info(f"Successfully shortened URL: {data['short_url']}")
+                        return data['short_url']
+                    else:
+                        logger.error(f"No short_url in response: {data}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON response: {e}")
             else:
-                logger.error(f"Reurl.cc API error: {response.status_code} - {response.text}")
-                return long_url
+                logger.error(f"Reurl.cc API error: {response.status_code}")
+            
+            return long_url
             
         except Exception as e:
             logger.error(f"Error shortening URL with Reurl.cc: {str(e)}")
