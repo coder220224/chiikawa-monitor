@@ -1286,7 +1286,7 @@ def create_product_flex_message(title, products, icon="🆕"):
                                 flex=0,
                                 contents=[
                                     ImageComponent(
-                                        url=product.get('image_url', 'https://cdn.shopify.com/s/files/1/0626/7142/1681/files/4905114930365_1.jpg?v=1744782283'),
+                                        url=product.get('image_url', 'https://imgur.com/a/rlCYOa6'),
                                         size="full",
                                         aspect_mode="cover",
                                         aspect_ratio="1:1"
