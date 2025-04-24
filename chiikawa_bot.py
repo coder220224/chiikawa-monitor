@@ -979,13 +979,45 @@ def handle_line_new_products(reply_token):
         )
         return
     
-    # 創建 Flex 消息
-    bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
+    # 计算总页数
+    products_per_bubble = 6  # 每个气泡显示6个商品
+    bubbles_per_carousel = 12  # LINE限制每个Carousel最多12个气泡
+    products_per_carousel = products_per_bubble * bubbles_per_carousel  # 一个Carousel最多显示72个商品
     
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text="今日上架商品", contents=bubble)
-    )
+    # 分批处理商品
+    total_products = len(new_products)
+    total_carousels = (total_products + products_per_carousel - 1) // products_per_carousel
+    
+    messages = []
+    for carousel_index in range(total_carousels):
+        start_idx = carousel_index * products_per_carousel
+        end_idx = min(start_idx + products_per_carousel, total_products)
+        current_batch = new_products[start_idx:end_idx]
+        
+        # 创建当前批次的Flex消息
+        carousel = create_product_flex_message(
+            f"今日上架商品 ({carousel_index + 1}/{total_carousels})", 
+            current_batch, 
+            "🆕"
+        )
+        messages.append(FlexSendMessage(
+            alt_text=f"今日上架商品 ({carousel_index + 1}/{total_carousels})",
+            contents=carousel
+        ))
+    
+    # 如果只有一条消息，使用reply_message
+    if len(messages) == 1:
+        line_bot_api.reply_message(reply_token, messages[0])
+    else:
+        # 如果有多条消息，先回复第一条，然后推送其余消息
+        line_bot_api.reply_message(reply_token, messages[0])
+        # 获取用户ID以发送后续消息
+        try:
+            user_id = line_bot_api.get_profile(reply_token).user_id
+            for message in messages[1:]:
+                line_bot_api.push_message(user_id, message)
+        except Exception as e:
+            logger.error(f"發送後續消息時發生錯誤：{str(e)}")
 
 def handle_line_delisted_products(reply_token):
     """處理 LINE 下架商品請求"""
@@ -998,13 +1030,45 @@ def handle_line_delisted_products(reply_token):
         )
         return
     
-    # 創建 Flex 消息
-    bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
+    # 计算总页数
+    products_per_bubble = 6  # 每个气泡显示6个商品
+    bubbles_per_carousel = 12  # LINE限制每个Carousel最多12个气泡
+    products_per_carousel = products_per_bubble * bubbles_per_carousel  # 一个Carousel最多显示72个商品
     
-    line_bot_api.reply_message(
-        reply_token,
-        FlexSendMessage(alt_text="今日下架商品", contents=bubble)
-    )
+    # 分批处理商品
+    total_products = len(delisted_products)
+    total_carousels = (total_products + products_per_carousel - 1) // products_per_carousel
+    
+    messages = []
+    for carousel_index in range(total_carousels):
+        start_idx = carousel_index * products_per_carousel
+        end_idx = min(start_idx + products_per_carousel, total_products)
+        current_batch = delisted_products[start_idx:end_idx]
+        
+        # 创建当前批次的Flex消息
+        carousel = create_product_flex_message(
+            f"今日下架商品 ({carousel_index + 1}/{total_carousels})", 
+            current_batch, 
+            "❌"
+        )
+        messages.append(FlexSendMessage(
+            alt_text=f"今日下架商品 ({carousel_index + 1}/{total_carousels})",
+            contents=carousel
+        ))
+    
+    # 如果只有一条消息，使用reply_message
+    if len(messages) == 1:
+        line_bot_api.reply_message(reply_token, messages[0])
+    else:
+        # 如果有多条消息，先回复第一条，然后推送其余消息
+        line_bot_api.reply_message(reply_token, messages[0])
+        # 获取用户ID以发送后续消息
+        try:
+            user_id = line_bot_api.get_profile(reply_token).user_id
+            for message in messages[1:]:
+                line_bot_api.push_message(user_id, message)
+        except Exception as e:
+            logger.error(f"發送後續消息時發生錯誤：{str(e)}")
 
 def handle_line_status(reply_token):
     """處理 LINE 狀態請求"""
@@ -1173,8 +1237,8 @@ def handle_line_help(reply_token):
 
 def create_product_flex_message(title, products, icon="🆕"):
     """創建商品 Flex 消息，使用 Carousel 實現分頁"""
-    # 每个气泡最多显示5个商品
-    products_per_bubble = 5
+    # 每个气泡最多显示6个商品
+    products_per_bubble = 6
     bubbles = []
     
     # 计算需要多少个气泡
