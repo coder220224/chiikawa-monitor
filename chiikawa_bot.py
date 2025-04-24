@@ -356,13 +356,25 @@ async def start_monitoring(ctx):
         logger.error(f"執行失敗：{str(e)}")
 
 @bot.command(name='上架')
-async def new_listings(ctx):
-    """顯示今日上架的商品"""
+async def new_listings(ctx, days: int = 0):
+    """顯示上架的商品，可指定天數"""
     try:
-        new_products = monitor.get_today_history('new')
+        if days < 0 or days > 7:
+            await ctx.send("請指定 0-7 天的範圍（0 表示今天）")
+            return
+            
+        # 根据天数参数选择不同的函数获取数据
+        if days == 0:
+            # 使用新的函数获取今日数据
+            new_products = monitor.get_today_new_products()
+            title = "今日上架商品"
+        else:
+            # 使用新的函数获取指定天数的数据
+            new_products = monitor.get_period_new_products(days)
+            title = f"近 {days} 天上架商品"
         
         if not new_products:
-            embed = discord.Embed(title="今日上架商品", description="今天還沒有新商品上架", color=0xff0000)
+            embed = discord.Embed(title=title, description=f"指定时间内没有新商品上架", color=0xff0000)
             await ctx.send(embed=embed)
             return
             
@@ -374,19 +386,36 @@ async def new_listings(ctx):
             
             for i, batch in enumerate(batches):
                 embed = discord.Embed(
-                    title=f"今日上架商品 ({i+1}/{len(batches)})", 
+                    title=f"{title} ({i+1}/{len(batches)})", 
                     description=f"共{len(new_products)}个商品上架", 
                     color=0x00ff00
                 )
                 
                 for product in batch:
-                    time_str = product['time'].strftime('%H:%M:%S')
+                    time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
                     # 限制字段内容长度
                     name = product['name']
                     if len(name) > 100:  # 限制标题长度
                         name = name[:97] + "..."
                     
-                    field_content = f"🆕 上架時間: {time_str}\n[商品連結]({product['url']})"
+                    # 处理标签信息
+                    tags_text = ""
+                    if 'tags' in product and product['tags']:
+                        # 只显示前5个标签，防止过长
+                        tags = product['tags'][:5]
+                        tags_text = f"\n🏷️ {', '.join(tags)}"
+                        if len(product['tags']) > 5:
+                            tags_text += f" ... 等{len(product['tags'])}个标签"
+                    
+                    # 添加价格信息（如果有）
+                    price_text = ""
+                    if 'price' in product and product['price']:
+                        price = product['price']
+                        price_text = f"\n💰 價格: ¥{price:,}"
+                    
+                    availability = "✅ 有貨" if product.get('available', False) else "❌ 缺貨"
+                    
+                    field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
                     embed.add_field(name=name, value=field_content, inline=False)
                 
                 await ctx.send(embed=embed)
@@ -394,16 +423,33 @@ async def new_listings(ctx):
             return
         
         # 如果商品数量不多，正常处理
-        embed = discord.Embed(title="今日上架商品", color=0x00ff00)
+        embed = discord.Embed(title=title, color=0x00ff00)
         for product in new_products:
-            time_str = product['time'].strftime('%H:%M:%S')
+            time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
             
             # 限制字段内容长度
             name = product['name']
             if len(name) > 100:  # 限制标题长度
                 name = name[:97] + "..."
             
-            field_content = f"🆕 上架時間: {time_str}\n[商品連結]({product['url']})"
+            # 处理标签信息
+            tags_text = ""
+            if 'tags' in product and product['tags']:
+                # 只显示前5个标签，防止过长
+                tags = product['tags'][:5]
+                tags_text = f"\n🏷️ {', '.join(tags)}"
+                if len(product['tags']) > 5:
+                    tags_text += f" ... 等{len(product['tags'])}个标签"
+            
+            # 添加价格信息（如果有）
+            price_text = ""
+            if 'price' in product and product['price']:
+                price = product['price']
+                price_text = f"\n💰 價格: ¥{price:,}"
+            
+            availability = "✅ 有貨" if product.get('available', False) else "❌ 缺貨"
+            
+            field_content = f"🆕 上架時間: {time_str}\n{availability}{price_text}\n[商品連結]({product['url']}){tags_text}"
             embed.add_field(name=name, value=field_content, inline=False)
         
         await ctx.send(embed=embed)
@@ -414,13 +460,25 @@ async def new_listings(ctx):
         logger.error(traceback.format_exc())
 
 @bot.command(name='下架')
-async def delisted(ctx):
-    """顯示今日下架的商品"""
+async def delisted(ctx, days: int = 0):
+    """顯示下架的商品，可指定天數"""
     try:
-        delisted_products = monitor.get_today_history('delisted')
+        if days < 0 or days > 7:
+            await ctx.send("請指定 0-7 天的範圍（0 表示今天）")
+            return
+            
+        # 根据天数参数选择不同的函数获取数据
+        if days == 0:
+            # 使用新的函数获取今日数据
+            delisted_products = monitor.get_today_delisted_products()
+            title = "今日下架商品"
+        else:
+            # 使用新的函数获取指定天数的数据
+            delisted_products = monitor.get_period_delisted_products(days)
+            title = f"近 {days} 天下架商品"
         
         if not delisted_products:
-            embed = discord.Embed(title="今日下架商品", description="今天還沒有商品下架", color=0xff0000)
+            embed = discord.Embed(title=title, description=f"指定时间内没有商品下架", color=0xff0000)
             await ctx.send(embed=embed)
             return
         
@@ -432,13 +490,13 @@ async def delisted(ctx):
             
             for i, batch in enumerate(batches):
                 embed = discord.Embed(
-                    title=f"今日下架商品 ({i+1}/{len(batches)})", 
+                    title=f"{title} ({i+1}/{len(batches)})", 
                     description=f"共{len(delisted_products)}个商品下架", 
                     color=0xff0000
                 )
                 
                 for product in batch:
-                    time_str = product['time'].strftime('%H:%M:%S')
+                    time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
                     # 限制字段内容长度
                     name = product['name']
                     if len(name) > 100:  # 限制标题长度
@@ -452,9 +510,9 @@ async def delisted(ctx):
             return
             
         # 如果商品数量不多，正常处理
-        embed = discord.Embed(title="今日下架商品", color=0xff0000)
+        embed = discord.Embed(title=title, color=0xff0000)
         for product in delisted_products:
-            time_str = product['time'].strftime('%H:%M:%S')
+            time_str = product['time'].strftime('%Y-%m-%d %H:%M:%S')
             
             # 限制字段内容长度
             name = product['name']
@@ -826,9 +884,9 @@ async def show_commands(ctx):
     embed.add_field(
         name="基本指令",
         value=(
-            "📦 `!上架` - 顯示今日上架的商品\n"
-            "❌ `!下架` - 顯示今日下架的商品\n"
-            "📅 `!歷史` - 顯示7天內的商品變更記錄\n"
+            "📦 `!上架 [天數]` - 顯示上架的商品，可指定 0-7 天範圍（0表示今天）\n"
+            "❌ `!下架 [天數]` - 顯示下架的商品，可指定 0-7 天範圍（0表示今天）\n"
+            "📅 `!歷史 [天數]` - 顯示指定天數內的商品變更記錄（默認7天）\n"
             "🔧 `!狀態` - 檢查服務運行狀態\n"
             "❓ `!指令` - 顯示可用指令"
         ),
@@ -922,12 +980,61 @@ def handle_line_message(event):
         logger.info(f"收到 LINE 訊息: {text}")
         
         # 定義支援的指令列表
-        commands = ['上架', '下架', '狀態', '指令']
+        commands = ['狀態', '指令']
         
         # 檢查是否是歷史指令(特殊處理)
         is_history_command = False
+        days_history = 7  # 默认7天
         if text.startswith('歷史'):
             is_history_command = True
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    days_history = int(parts[1])
+                    if days_history <= 0 or days_history > 30:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="請指定 1-30 天的範圍")
+                        )
+                        return
+                except ValueError:
+                    pass
+        
+        # 檢查是否是上架指令(特殊處理)
+        is_new_command = False
+        days_new = 0  # 默认今天
+        if text.startswith('上架'):
+            is_new_command = True
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    days_new = int(parts[1])
+                    if days_new < 0 or days_new > 7:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                        )
+                        return
+                except ValueError:
+                    pass
+        
+        # 檢查是否是下架指令(特殊處理)
+        is_delisted_command = False
+        days_delisted = 0  # 默认今天
+        if text.startswith('下架'):
+            is_delisted_command = True
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    days_delisted = int(parts[1])
+                    if days_delisted < 0 or days_delisted > 7:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                        )
+                        return
+                except ValueError:
+                    pass
         
         # 檢查是否是支援的指令
         is_command = False
@@ -937,24 +1044,17 @@ def handle_line_message(event):
                 break
         
         # 只處理支援的指令,忽略其他訊息
-        if is_command or is_history_command:
-            if text == '上架':
-                handle_line_new_products(event.reply_token)
-            elif text == '下架':
-                handle_line_delisted_products(event.reply_token)
+        if is_command or is_history_command or is_new_command or is_delisted_command:
+            if is_new_command:
+                handle_line_new_products(event.reply_token, days_new)
+            elif is_delisted_command:
+                handle_line_delisted_products(event.reply_token, days_delisted)
             elif text == '狀態':
                 handle_line_status(event.reply_token)
             elif text == '指令':
                 handle_line_help(event.reply_token)
             elif is_history_command:
-                try:
-                    days = int(text[2:]) if len(text) > 2 else 7
-                    handle_line_history(event.reply_token, days)
-                except ValueError:
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text="請指定 1-30 天的範圍")
-                    )
+                handle_line_history(event.reply_token, days_history)
         # 不處理非指令訊息
             
     except Exception as e:
@@ -968,42 +1068,42 @@ def handle_line_message(event):
         except:
             pass
 
-def handle_line_new_products(reply_token):
+def handle_line_new_products(reply_token, days):
     """處理 LINE 上架商品請求"""
-    new_products = monitor.get_today_history('new')
+    new_products = monitor.get_period_new_products(days)
     
     if not new_products:
         line_bot_api.reply_message(
             reply_token,
-            TextSendMessage(text="今天還沒有新商品上架")
+            TextSendMessage(text="指定天數內沒有新商品上架")
         )
         return
     
     # 創建 Flex 消息
-    bubble = create_product_flex_message("今日上架商品", new_products, "🆕")
+    bubble = create_product_flex_message("指定天數內上架商品", new_products, "🆕")
     
     line_bot_api.reply_message(
         reply_token,
-        FlexSendMessage(alt_text="今日上架商品", contents=bubble)
+        FlexSendMessage(alt_text="指定天數內上架商品", contents=bubble)
     )
 
-def handle_line_delisted_products(reply_token):
+def handle_line_delisted_products(reply_token, days):
     """處理 LINE 下架商品請求"""
-    delisted_products = monitor.get_today_history('delisted')
+    delisted_products = monitor.get_period_delisted_products(days)
     
     if not delisted_products:
         line_bot_api.reply_message(
             reply_token,
-            TextSendMessage(text="今天還沒有商品下架")
+            TextSendMessage(text="指定天數內沒有商品下架")
         )
         return
     
     # 創建 Flex 消息
-    bubble = create_product_flex_message("今日下架商品", delisted_products, "❌")
+    bubble = create_product_flex_message("指定天數內下架商品", delisted_products, "❌")
     
     line_bot_api.reply_message(
         reply_token,
-        FlexSendMessage(alt_text="今日下架商品", contents=bubble)
+        FlexSendMessage(alt_text="指定天數內下架商品", contents=bubble)
     )
 
 def handle_line_status(reply_token):
@@ -1159,10 +1259,10 @@ def handle_line_help(reply_token):
     """發送 LINE 幫助信息"""
     help_text = (
         "可用指令：\n"
-        "📦 上架 - 顯示今日新上架商品\n"
-        "❌ 下架 - 顯示今日下架商品\n"
+        "📦 上架 [天數] - 顯示上架商品，可指定 0-7 天範圍（0表示今天）\n"
+        "❌ 下架 [天數] - 顯示下架商品，可指定 0-7 天範圍（0表示今天）\n"
         "🔧 狀態 - 檢查服務運行狀態\n"
-        "📅 歷史 - 顯示7天內的變更記錄\n"
+        "📅 歷史 [天數] - 顯示指定天數內的變更記錄（默認7天）\n"
         "❓ 指令 - 顯示可用指令"
     )
     
