@@ -232,6 +232,7 @@ class ChiikawaMonitor:
                                 'name': title,
                                 'price': price,
                                 'available': available,
+                                'tags': product.get('tags', []),
                                 'last_seen': datetime.now(TW_TIMEZONE)
                             })
                             
