@@ -249,15 +249,16 @@ class ChiikawaMonitor:
                             title = product.get('title', '')
                             variants = product.get('variants', [])
                             
-                            # 获取商品图片URL
+                            # 获取商品图片URL并上传到Imgur
                             image_url = None
                             if 'images' in product and product['images']:
-                                # 获取第一张图片的URL
                                 image = product['images'][0]
                                 if isinstance(image, dict) and 'src' in image:
-                                    image_url = image['src']
+                                    original_url = image['src']
+                                    image_url = self.shorten_image_url(original_url)
+                                    logger.info(f"圖片 URL 已轉換: {original_url} -> {image_url}")
                                 elif isinstance(image, str):
-                                    image_url = image
+                                    image_url = self.shorten_image_url(image)
                             
                             price = 0
                             available = False
@@ -272,7 +273,7 @@ class ChiikawaMonitor:
                                 'name': title,
                                 'price': price,
                                 'available': available,
-                                'image_url': image_url,  # 添加图片URL
+                                'image_url': image_url,
                                 'last_seen': datetime.now(TW_TIMEZONE)
                             })
                             
@@ -296,14 +297,6 @@ class ChiikawaMonitor:
                 
             logger.info(f"\n=== 商品獲取完成 ===")
             logger.info(f"總共獲取: {total_products} 個商品")
-
-            for product in new_products_data:
-                if 'images' in product and product['images']:
-                    # 獲取第一張圖片的 URL
-                    image_url = product['images'][0]['src']
-                    # 轉換為短 URL
-                    short_url = self.shorten_image_url(image_url)
-                    product['image_url'] = short_url
             
             return new_products_data
             
