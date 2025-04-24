@@ -155,20 +155,35 @@ class ChiikawaMonitor:
             logger.error(f"上傳圖片到 ImgBB 時發生錯誤：{str(e)}")
             return None
 
-    def process_image_url(self, original_url):
-        """處理圖片 URL，上傳到 ImgBB"""
+    def process_image_url(self, original_url, product_url=None):
+        """處理圖片 URL，檢查現有 ImgBB URL 或上傳到 ImgBB"""
         try:
             # 如果原始URL為空，返回空
             if not original_url:
                 return None
             
+            # 如果提供了商品URL，檢查資料庫中是否已有 ImgBB URL
+            if product_url:
+                existing_product = self.products.find_one({'url': product_url})
+                if existing_product and existing_product.get('imgbb_url'):
+                    logger.info(f"使用現有的 ImgBB URL: {existing_product['imgbb_url']}")
+                    return existing_product['imgbb_url']
+            
             # 如果是 Shopify URL，先優化它
             if 'cdn.shopify.com' in original_url:
                 optimized_url = f"{original_url.split('?')[0]}?width=100&height=100"
-                return self.upload_to_imgbb(optimized_url)
+                imgbb_url = self.upload_to_imgbb(optimized_url)
+                if imgbb_url:
+                    logger.info(f"成功上傳圖片到 ImgBB: {imgbb_url}")
+                    return imgbb_url
             
             # 對於其他 URL，直接上傳到 ImgBB
-            return self.upload_to_imgbb(original_url)
+            imgbb_url = self.upload_to_imgbb(original_url)
+            if imgbb_url:
+                logger.info(f"成功上傳圖片到 ImgBB: {imgbb_url}")
+                return imgbb_url
+            
+            return None
             
         except Exception as e:
             logger.error(f"處理圖片 URL 時發生錯誤：{str(e)}")
@@ -211,7 +226,6 @@ class ChiikawaMonitor:
                 
                 if api_response.status_code == 200:
                     try:
-                        # requests 會自動處理解壓縮
                         data = api_response.json()
                         logger.info("成功解析 JSON 響應")
                         logger.info(f"響應數據預覽: {str(data)[:200]}")
@@ -239,90 +253,131 @@ class ChiikawaMonitor:
             page = 1
             new_products_data = []
             seen_handles = set()
+            max_retries = 3  # 最大重試次數
+            retry_delay = 5  # 重試間隔（秒）
             
             while True:
-                try:
-                    logger.info(f"\n獲取第 {page} 頁...")
-                    response = self.session.get(
-                        api_url,
-                        params={'page': page, 'limit': 250},
-                        timeout=30
-                    )
-                    
-                    if response.status_code != 200:
-                        logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
-                        break
-                        
+                retry_count = 0
+                while retry_count < max_retries:
                     try:
-                        data = response.json()
-                    except json.JSONDecodeError as e:
-                        logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
-                        break
+                        logger.info(f"\n獲取第 {page} 頁...")
+                        response = self.session.get(
+                            api_url,
+                            params={'page': page, 'limit': 250},
+                            timeout=30
+                        )
                         
-                    if not isinstance(data, dict) or 'products' not in data:
-                        logger.error(f"第 {page} 頁數據格式錯誤")
-                        break
-                        
-                    products = data['products']
-                    if not products:
-                        logger.info("沒有更多商品")
-                        break
-                        
-                    page_count = 0
-                    for product in products:
-                        try:
-                            handle = product.get('handle', '')
-                            if not handle or handle in seen_handles:
-                                continue
-                                
-                            seen_handles.add(handle)
-                            title = product.get('title', '')
-                            variants = product.get('variants', [])
-                            
-                            # 获取商品图片URL并上传到ImgBB
-                            image_url = None
-                            if 'images' in product and product['images']:
-                                image = product['images'][0]
-                                if isinstance(image, dict) and 'src' in image:
-                                    original_url = image['src']
-                                    image_url = self.process_image_url(original_url)
-                                    logger.info(f"圖片已上傳到 ImgBB: {image_url}")
-                                elif isinstance(image, str):
-                                    image_url = self.process_image_url(image)
-                            
-                            price = 0
-                            available = False
-                            if variants:
-                                variant = variants[0]
-                                price = int(float(variant.get('price', 0)))
-                                available = variant.get('available', False)
-                                
-                            product_url = f"{self.base_url}/zh-hant/products/{handle}"
-                            new_products_data.append({
-                                'url': product_url,
-                                'name': title,
-                                'price': price,
-                                'available': available,
-                                'image_url': image_url,
-                                'last_seen': datetime.now(TW_TIMEZONE)
-                            })
-                            
-                            total_products += 1
-                            page_count += 1
-                            
-                        except Exception as e:
-                            logger.error(f"處理商品時出錯: {str(e)}")
+                        if response.status_code == 429:  # Too Many Requests
+                            retry_after = int(response.headers.get('Retry-After', retry_delay))
+                            logger.warning(f"請求過於頻繁，等待 {retry_after} 秒後重試...")
+                            time.sleep(retry_after)
+                            retry_count += 1
                             continue
                             
-                    logger.info(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
-                    if page_count == 0:
-                        break
+                        if response.status_code != 200:
+                            logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
+                            retry_count += 1
+                            time.sleep(retry_delay)
+                            continue
+                            
+                        try:
+                            data = response.json()
+                        except json.JSONDecodeError as e:
+                            logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
+                            retry_count += 1
+                            time.sleep(retry_delay)
+                            continue
+                            
+                        if not isinstance(data, dict) or 'products' not in data:
+                            logger.error(f"第 {page} 頁數據格式錯誤")
+                            retry_count += 1
+                            time.sleep(retry_delay)
+                            continue
+                            
+                        products = data['products']
+                        if not products:
+                            logger.info("沒有更多商品")
+                            return new_products_data
+                            
+                        page_count = 0
+                        for product in products:
+                            try:
+                                handle = product.get('handle', '')
+                                if not handle or handle in seen_handles:
+                                    continue
+                                    
+                                seen_handles.add(handle)
+                                title = product.get('title', '')
+                                variants = product.get('variants', [])
+                                
+                                # 获取商品图片URL并上传到ImgBB
+                                image_url = None
+                                imgbb_url = None
+                                product_url = f"{self.base_url}/zh-hant/products/{handle}"
+                                
+                                if 'images' in product and product['images']:
+                                    image = product['images'][0]
+                                    if isinstance(image, dict) and 'src' in image:
+                                        original_url = image['src']
+                                        image_url = original_url
+                                        imgbb_url = self.process_image_url(original_url, product_url)
+                                        logger.info(f"圖片處理結果: 原始URL={image_url}, ImgBB URL={imgbb_url}")
+                                    elif isinstance(image, str):
+                                        image_url = image
+                                        imgbb_url = self.process_image_url(image, product_url)
+                                
+                                price = 0
+                                available = False
+                                if variants:
+                                    variant = variants[0]
+                                    price = int(float(variant.get('price', 0)))
+                                    available = variant.get('available', False)
+                                    
+                                new_products_data.append({
+                                    'url': product_url,
+                                    'name': title,
+                                    'price': price,
+                                    'available': available,
+                                    'image_url': image_url,    # 原始 Shopify URL
+                                    'imgbb_url': imgbb_url,    # ImgBB URL
+                                    'last_seen': datetime.now(TW_TIMEZONE)
+                                })
+                                
+                                total_products += 1
+                                page_count += 1
+                                
+                            except Exception as e:
+                                logger.error(f"處理商品時出錯: {str(e)}")
+                                continue
+                                
+                        logger.info(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
+                        if page_count == 0:
+                            return new_products_data
+                            
+                        page += 1
+                        time.sleep(2)  # 增加請求間隔
+                        break  # 成功獲取數據，跳出重試循環
                         
-                    page += 1
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    logger.error(f"處理第 {page} 頁時出錯: {str(e)}")
+                    except (requests.exceptions.ConnectionError, 
+                            requests.exceptions.ReadTimeout,
+                            requests.exceptions.ChunkedEncodingError) as e:
+                        logger.error(f"連接錯誤: {str(e)}")
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            wait_time = retry_delay * (2 ** retry_count)  # 指數退避
+                            logger.info(f"等待 {wait_time} 秒後重試...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"重試 {max_retries} 次後仍然失敗，返回已獲取的數據")
+                            return new_products_data
+                            
+                    except Exception as e:
+                        logger.error(f"處理第 {page} 頁時發生未知錯誤: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        return new_products_data
+                
+                if retry_count >= max_retries:
+                    logger.error(f"第 {page} 頁重試次數已達上限，返回已獲取的數據")
                     break
                 
             logger.info(f"\n=== 商品獲取完成 ===")
@@ -361,7 +416,8 @@ class ChiikawaMonitor:
                 'type': type_,
                 'name': product['name'],
                 'url': product['url'],
-                'image_url': product.get('image_url'),  # 已經是 ImgBB 的 URL
+                'image_url': product.get('image_url'),    # 原始 Shopify URL
+                'imgbb_url': product.get('imgbb_url'),    # ImgBB URL
                 'time': datetime.now(TW_TIMEZONE)
             }
             self.history.insert_one(history_data)
