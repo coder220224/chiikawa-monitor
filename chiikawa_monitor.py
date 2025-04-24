@@ -14,9 +14,8 @@ import urllib3
 import requests.packages.urllib3.util.ssl_
 import sys
 import traceback
-import brotli  # 添加 brotli 支持
+import brotli
 import pytz
-from imgurpython import ImgurClient
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -88,15 +87,6 @@ class ChiikawaMonitor:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
         self.session.verify = False
-
-        # Imgur client setup
-        self.imgur_client_id = os.environ.get('IMGUR_CLIENT_ID')
-        self.imgur_client_secret = os.environ.get('IMGUR_CLIENT_SECRET')
-        if self.imgur_client_id and self.imgur_client_secret:
-            self.imgur_client = ImgurClient(self.imgur_client_id, self.imgur_client_secret)
-        else:
-            self.imgur_client = None
-            logging.warning("Imgur credentials not found. URL shortening will be disabled.")
 
     def decode_response(self, response):
         """解碼響應內容，處理各種壓縮格式"""
