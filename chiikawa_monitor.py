@@ -219,6 +219,16 @@ class ChiikawaMonitor:
                             title = product.get('title', '')
                             variants = product.get('variants', [])
                             
+                            # 获取商品图片URL
+                            image_url = None
+                            if 'images' in product and product['images']:
+                                # 获取第一张图片的URL
+                                image = product['images'][0]
+                                if isinstance(image, dict) and 'src' in image:
+                                    image_url = image['src']
+                                elif isinstance(image, str):
+                                    image_url = image
+                            
                             price = 0
                             available = False
                             if variants:
@@ -232,6 +242,7 @@ class ChiikawaMonitor:
                                 'name': title,
                                 'price': price,
                                 'available': available,
+                                'image_url': image_url,  # 添加图片URL
                                 'last_seen': datetime.now(TW_TIMEZONE)
                             })
                             
@@ -288,6 +299,7 @@ class ChiikawaMonitor:
                 'type': type_,
                 'name': product['name'],
                 'url': product['url'],
+                'image_url': product.get('image_url'),  # 添加图片URL
                 'time': datetime.now(TW_TIMEZONE)
             }
             self.history.insert_one(history_data)
