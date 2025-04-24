@@ -43,6 +43,10 @@ class ChiikawaMonitor:
         self.work_dir = os.path.dirname(os.path.abspath(__file__))
         self.excel_path = os.path.join(self.work_dir, 'chiikawa_products.xlsx')
         
+        # Reurl.cc API setup
+        self.reurl_api_key = "4070ff49d794e73010563b663c974755ecd6bf31959304df8a38b58d6516556389"
+        self.reurl_api_url = "https://api.reurl.cc"
+        
         # MongoDB 設置
         try:
             self.client = MongoClient(
@@ -124,24 +128,57 @@ class ChiikawaMonitor:
             logger.error(f"更新 Excel 時發生錯誤：{str(e)}")
             return False
 
-    def shorten_image_url(self, original_url):
-        """將商品圖片上傳到 Imgur 並返回較短的 URL"""
+    def shorten_url_with_reurl(self, long_url):
+        """使用 reurl.cc API 縮短 URL"""
         try:
-            if not self.imgur_client:
-                return original_url
-                
-            # 檢查 URL 是否已經是 Imgur URL
-            if 'imgur.com' in original_url:
-                return original_url
-                
-            # 上傳圖片到 Imgur
-            response = self.imgur_client.upload_from_url(original_url)
-            if response and 'link' in response:
-                return response['link']
+            headers = {
+                'Content-Type': 'application/json',
+                'reurl-api-key': self.reurl_api_key
+            }
             
-            return original_url
+            payload = {
+                'url': long_url
+            }
+            
+            response = requests.post(
+                f"{self.reurl_api_url}/shorten",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'ok':
+                    return data.get('short_url')
+                else:
+                    logger.error(f"Reurl.cc API error: {data.get('message')}")
+                    return long_url
+            else:
+                logger.error(f"Reurl.cc API error: {response.status_code} - {response.text}")
+                return long_url
+            
         except Exception as e:
-            logging.error(f"上傳圖片到 Imgur 失敗：{str(e)}")
+            logger.error(f"Error shortening URL with Reurl.cc: {str(e)}")
+            return long_url
+
+    def shorten_image_url(self, original_url):
+        """縮短圖片 URL"""
+        try:
+            # 如果原始URL為空，返回空
+            if not original_url:
+                return original_url
+            
+            # 如果是 Shopify URL，先優化它
+            if 'cdn.shopify.com' in original_url:
+                optimized_url = f"{original_url.split('?')[0]}?width=100&height=100"
+                # 使用 reurl.cc 縮短優化後的 URL
+                return self.shorten_url_with_reurl(optimized_url)
+            
+            # 對於其他 URL，直接使用 reurl.cc 縮短
+            return self.shorten_url_with_reurl(original_url)
+            
+        except Exception as e:
+            logger.error(f"Error in shorten_image_url: {str(e)}")
             return original_url
 
     def fetch_products(self):
