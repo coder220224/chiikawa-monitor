@@ -1173,8 +1173,8 @@ def handle_line_help(reply_token):
 
 def create_product_flex_message(title, products, icon="🆕"):
     """創建商品 Flex 消息，使用 Carousel 實現分頁"""
-    # 每个气泡最多显示10个商品
-    products_per_bubble = 10
+    # 每个气泡最多显示5个商品
+    products_per_bubble = 5
     bubbles = []
     
     # 计算需要多少个气泡
@@ -1205,37 +1205,49 @@ def create_product_flex_message(title, products, icon="🆕"):
             
             # 创建商品容器
             product_box = BoxComponent(
-                layout="horizontal",
+                layout="vertical",
                 margin="md",
+                spacing="sm",
                 contents=[
-                    # 如果有图片，添加图片组件
+                    # 商品信息行
                     BoxComponent(
-                        layout="vertical",
-                        width="72px",
-                        height="72px",
+                        layout="horizontal",
                         contents=[
-                            ImageComponent(
-                                url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
-                                size="full",
-                                aspect_mode="cover",
-                                aspect_ratio="1:1"
-                            ) if product.get('image_url') else TextComponent(
-                                text="🖼️",
-                                size="xxl",
-                                align="center",
-                                gravity="center"
+                            # 图片容器
+                            BoxComponent(
+                                layout="vertical",
+                                width="72px",
+                                height="72px",
+                                contents=[
+                                    ImageComponent(
+                                        url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                                        size="full",
+                                        aspect_mode="cover",
+                                        aspect_ratio="1:1"
+                                    ) if product.get('image_url') else TextComponent(
+                                        text="🖼️",
+                                        size="xxl",
+                                        align="center",
+                                        gravity="center"
+                                    )
+                                ]
+                            ),
+                            # 商品信息
+                            BoxComponent(
+                                layout="vertical",
+                                flex=1,
+                                margin="sm",
+                                spacing="xs",
+                                contents=[
+                                    TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
+                                    TextComponent(text=f"時間: {time_str}", size="xs", color="#999999"),
+                                    ButtonComponent(
+                                        style="link",
+                                        height="sm",
+                                        action=URIAction(label="查看商品", uri=product['url'])
+                                    )
+                                ]
                             )
-                        ]
-                    ),
-                    # 商品信息
-                    BoxComponent(
-                        layout="vertical",
-                        flex=1,
-                        margin="md",
-                        spacing="sm",
-                        contents=[
-                            TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
-                            TextComponent(text=f"時間: {time_str}", size="xs", color="#999999")
                         ]
                     )
                 ]
@@ -1243,15 +1255,6 @@ def create_product_flex_message(title, products, icon="🆕"):
             
             # 添加商品容器
             contents.append(product_box)
-            
-            # 添加查看按钮
-            contents.append(
-                ButtonComponent(
-                    style="link",
-                    height="sm",
-                    action=URIAction(label="查看商品", uri=product['url'])
-                )
-            )
         
         # 添加页码信息
         contents.append(
