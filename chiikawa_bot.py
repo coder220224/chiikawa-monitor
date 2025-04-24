@@ -1253,7 +1253,7 @@ def create_product_flex_message(title, products, icon="🆕"):
         # 创建每个气泡的内容
         contents = [
             TextComponent(
-                text=f"{title} ({bubble_index + 1}/{total_bubbles})",
+                text=f"{icon} {title} ({bubble_index + 1}/{total_bubbles})",
                 weight="bold",
                 size="xl"
             )
@@ -1276,12 +1276,14 @@ def create_product_flex_message(title, products, icon="🆕"):
                     # 商品信息行
                     BoxComponent(
                         layout="horizontal",
+                        spacing="sm",
                         contents=[
-                            # 图片容器
+                            # 图片容器（固定宽度，无margin）
                             BoxComponent(
                                 layout="vertical",
                                 width="72px",
                                 height="72px",
+                                flex=0,
                                 contents=[
                                     ImageComponent(
                                         url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
@@ -1300,10 +1302,9 @@ def create_product_flex_message(title, products, icon="🆕"):
                             BoxComponent(
                                 layout="vertical",
                                 flex=1,
-                                margin="sm",
                                 spacing="xs",
                                 contents=[
-                                    TextComponent(text=f"{icon} {name}", weight="bold", wrap=True, size="sm"),
+                                    TextComponent(text=name, weight="bold", wrap=True, size="sm"),
                                     TextComponent(text=f"時間: {time_str}", size="xs", color="#999999"),
                                     ButtonComponent(
                                         style="link",
