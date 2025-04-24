@@ -167,6 +167,121 @@ class ProxyBot(commands.Bot):
         except Exception as e:
             logger.error(f"關閉時發生錯誤：{str(e)}")
 
+    def create_product_flex_message(self, products, title, icon, current_page=1, total_pages=1):
+        """創建產品 Flex Message"""
+        try:
+            products_per_bubble = 4  # 每個氣泡顯示的產品數量
+            default_image = "https://i.imgur.com/YKVEkUX.jpg"  # 預設圖片
+            bubbles = []
+            
+            # 计算需要多少个气泡
+            total_products = len(products)
+            total_bubbles = (total_products + products_per_bubble - 1) // products_per_bubble
+            
+            for bubble_index in range(total_bubbles):
+                start_idx = bubble_index * products_per_bubble
+                end_idx = min(start_idx + products_per_bubble, total_products)
+                current_products = products[start_idx:end_idx]
+                
+                # 创建每个气泡的内容
+                contents = [
+                    TextComponent(
+                        text=f"{icon} {title}",
+                        weight="bold",
+                        size="xl"
+                    )
+                ]
+                
+                for product in current_products:
+                    time_str = product['time'].strftime('%H:%M:%S')
+                    
+                    # 截断可能过长的商品名称
+                    name = product['name']
+                    if len(name) > 30:
+                        name = name[:27] + "..."
+                    
+                    # 優先使用 ImgBB URL
+                    display_image = product.get('imgbb_url') or product.get('image_url') or default_image
+                    
+                    # 创建商品容器
+                    product_box = BoxComponent(
+                        layout="vertical",
+                        margin="md",
+                        spacing="sm",
+                        contents=[
+                            # 商品信息行
+                            BoxComponent(
+                                layout="horizontal",
+                                spacing="sm",
+                                contents=[
+                                    # 图片容器（固定宽度，无margin）
+                                    BoxComponent(
+                                        layout="vertical",
+                                        width="40px",
+                                        height="40px",
+                                        flex=0,
+                                        contents=[
+                                            ImageComponent(
+                                                url=display_image,
+                                                size="full",
+                                                aspect_mode="cover",
+                                                aspect_ratio="1:1"
+                                            )
+                                        ]
+                                    ),
+                                    # 商品信息
+                                    BoxComponent(
+                                        layout="vertical",
+                                        flex=1,
+                                        spacing="xs",
+                                        contents=[
+                                            TextComponent(text=name, weight="bold", wrap=True, size="sm"),
+                                            TextComponent(text=f"時間: {time_str}", size="xs", color="#999999"),
+                                            ButtonComponent(
+                                                style="link",
+                                                height="sm",
+                                                action=URIAction(label="查看商品", uri=product['url'])
+                                            )
+                                        ]
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                    
+                    # 添加商品容器
+                    contents.append(product_box)
+                
+                # 添加页码信息
+                contents.append(
+                    TextComponent(
+                        text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
+                        size="sm",
+                        color="#999999",
+                        align="center",
+                        margin="md"
+                    )
+                )
+                
+                # 创建气泡容器
+                bubble = BubbleContainer(
+                    body=BoxComponent(
+                        layout="vertical",
+                        contents=contents
+                    )
+                )
+                bubbles.append(bubble)
+            
+            # 如果只有一个气泡，直接返回气泡
+            if len(bubbles) == 1:
+                return bubbles[0]
+            
+            # 否则返回轮播容器
+            return CarouselContainer(contents=bubbles)
+        except Exception as e:
+            logger.error(f"創建產品 Flex Message 時發生錯誤: {str(e)}")
+            return None
+
 bot = ProxyBot(command_prefix='!', intents=intents)
 
 # 初始化監控器
@@ -995,9 +1110,9 @@ def handle_line_new_products(reply_token):
         current_batch = new_products[start_idx:end_idx]
         
         # 创建当前批次的Flex消息
-        carousel = create_product_flex_message(
-            f"今日上架商品 ({carousel_index + 1}/{total_carousels})", 
+        carousel = bot.create_product_flex_message(
             current_batch, 
+            f"今日上架商品 ({carousel_index + 1}/{total_carousels})", 
             "🆕"
         )
         messages.append(FlexSendMessage(
@@ -1046,9 +1161,9 @@ def handle_line_delisted_products(reply_token):
         current_batch = delisted_products[start_idx:end_idx]
         
         # 创建当前批次的Flex消息
-        carousel = create_product_flex_message(
-            f"今日下架商品",  # 移除批次编号，只在底部显示页码
+        carousel = bot.create_product_flex_message(
             current_batch, 
+            "今日下架商品",  # 移除批次编号，只在底部显示页码
             "❌"
         )
         messages.append(FlexSendMessage(
@@ -1234,114 +1349,6 @@ def handle_line_help(reply_token):
         reply_token,
         TextSendMessage(text=help_text)
     )
-
-def create_product_flex_message(title, products, icon="🆕"):
-    """創建商品 Flex 消息，使用 Carousel 實現分頁"""
-    # 每个气泡最多显示6个商品
-    products_per_bubble = 6
-    bubbles = []
-    
-    # 计算需要多少个气泡
-    total_products = len(products)
-    total_bubbles = (total_products + products_per_bubble - 1) // products_per_bubble
-    
-    for bubble_index in range(total_bubbles):
-        start_idx = bubble_index * products_per_bubble
-        end_idx = min(start_idx + products_per_bubble, total_products)
-        current_products = products[start_idx:end_idx]
-        
-        # 创建每个气泡的内容
-        contents = [
-            TextComponent(
-                text=f"{icon} {title}",
-                weight="bold",
-                size="xl"
-            )
-        ]
-        
-        for product in current_products:
-            time_str = product['time'].strftime('%H:%M:%S')
-            
-            # 截断可能过长的商品名称
-            name = product['name']
-            if len(name) > 30:
-                name = name[:27] + "..."
-            
-            # 创建商品容器
-            product_box = BoxComponent(
-                layout="vertical",
-                margin="md",
-                spacing="sm",
-                contents=[
-                    # 商品信息行
-                    BoxComponent(
-                        layout="horizontal",
-                        spacing="sm",
-                        contents=[
-                            # 图片容器（固定宽度，无margin）
-                            BoxComponent(
-                                layout="vertical",
-                                width="40px",
-                                height="40px",
-                                flex=0,
-                                contents=[
-                                    ImageComponent(
-                                        url=product.get('image_url', 'https://imgur.com/a/rlCYOa6'),
-                                        size="full",
-                                        aspect_mode="cover",
-                                        aspect_ratio="1:1"
-                                    )
-                                ]
-                            ),
-                            # 商品信息
-                            BoxComponent(
-                                layout="vertical",
-                                flex=1,
-                                spacing="xs",
-                                contents=[
-                                    TextComponent(text=name, weight="bold", wrap=True, size="sm"),
-                                    TextComponent(text=f"時間: {time_str}", size="xs", color="#999999"),
-                                    ButtonComponent(
-                                        style="link",
-                                        height="sm",
-                                        action=URIAction(label="查看商品", uri=product['url'])
-                                    )
-                                ]
-                            )
-                        ]
-                    )
-                ]
-            )
-            
-            # 添加商品容器
-            contents.append(product_box)
-        
-        # 添加页码信息
-        contents.append(
-            TextComponent(
-                text=f"第 {bubble_index + 1} 頁，共 {total_bubbles} 頁",
-                size="sm",
-                color="#999999",
-                align="center",
-                margin="md"
-            )
-        )
-        
-        # 创建气泡容器
-        bubble = BubbleContainer(
-            body=BoxComponent(
-                layout="vertical",
-                contents=contents
-            )
-        )
-        bubbles.append(bubble)
-    
-    # 如果只有一个气泡，直接返回气泡
-    if len(bubbles) == 1:
-        return bubbles[0]
-    
-    # 否则返回轮播容器
-    return CarouselContainer(contents=bubbles)
 
 # 運行 Bot
 if __name__ == "__main__":
