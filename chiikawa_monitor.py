@@ -232,6 +232,17 @@ class ChiikawaMonitor:
                                 variant = variants[0]
                                 price = int(float(variant.get('price', 0)))
                                 available = variant.get('available', False)
+                            
+                            # 獲取商品圖片URL
+                            image_url = None
+                            if 'images' in product and product['images'] and len(product['images']) > 0:
+                                first_image = product['images'][0]
+                                if isinstance(first_image, dict) and 'src' in first_image:
+                                    image_url = first_image['src']
+                            
+                            # 如果沒有圖片，使用默認圖片
+                            if not image_url:
+                                image_url = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
                                 
                             product_url = f"{self.base_url}/zh-hant/products/{handle}"
                             new_products_data.append({
@@ -240,6 +251,7 @@ class ChiikawaMonitor:
                                 'price': price,
                                 'available': available,
                                 'tags': product.get('tags', []),
+                                'image_url': image_url,  # 存儲圖片URL
                                 'last_seen': datetime.now(TW_TIMEZONE)
                             })
                             
@@ -295,103 +307,103 @@ class ChiikawaMonitor:
             return False
             
     def process_resale_items(self, products_data):
-        """处理具有 RE 标签的商品，并更新 resale 集合"""
+        """處理具有 RE 標籤的商品，並更新 resale 集合"""
         try:
-            # 计数器
+            # 計數器
             new_resale_tags_count = 0
             
-            # 遍历所有商品
+            # 遍歷所有商品
             for product in products_data:
-                # 检查是否有标签
+                # 檢查是否有標籤
                 if 'tags' not in product or not product['tags']:
                     continue
                     
-                # 查找 RE 开头的标签
+                # 查找 RE 開頭的標籤
                 resale_tags = []
                 for tag in product['tags']:
-                    if tag.startswith('RE20') and len(tag) >= 10:  # 确保格式为 RE + 年月日
+                    if tag.startswith('RE20') and len(tag) >= 10:  # 確保格式為 RE + 年月日
                         resale_tags.append(tag)
                         
                 if not resale_tags:
                     continue
                 
-                # 检查是否已存在该商品的记录
+                # 檢查是否已存在該商品的記錄
                 existing_product = self.products.find_one({'url': product['url']}, {'tags': 1})
                 
-                # 如果商品不存在或没有标签信息，视为新商品
+                # 如果商品不存在或沒有標籤信息，視為新商品
                 if not existing_product or 'tags' not in existing_product:
                     new_resale_tags = resale_tags
                 else:
-                    # 比较新旧标签，找出新添加的 RE 标签
+                    # 比較新舊標籤，找出新添加的 RE 標籤
                     existing_tags = existing_product.get('tags', [])
                     new_resale_tags = [tag for tag in resale_tags if tag not in existing_tags]
                 
-                # 如果没有新的 RE 标签，跳过
+                # 如果沒有新的 RE 標籤，跳過
                 if not new_resale_tags:
                     continue
                 
-                # 找到新的 RE 标签，处理这个商品
+                # 找到新的 RE 標籤，處理這個商品
                 new_resale_tags_count += 1
-                logger.info(f"发现商品有新的 RE 标签: {product['name']}, 标签: {new_resale_tags}")
+                logger.info(f"發現商品有新的 RE 標籤: {product['name']}, 標籤: {new_resale_tags}")
                 
-                # 提取补货日期
+                # 提取補貨日期
                 resale_dates = []
                 for tag in new_resale_tags:
                     try:
                         # 提取日期部分 (YYYYMMDD)
                         date_str = tag[2:]
-                        # 转换为日期对象
+                        # 轉換為日期對象
                         year = int(date_str[:4])
                         month = int(date_str[4:6])
                         day = int(date_str[6:8])
                         resale_date = datetime(year, month, day).replace(tzinfo=TW_TIMEZONE)
                         resale_dates.append(resale_date)
                     except Exception as e:
-                        logger.error(f"解析 RE 标签日期失败: {tag}, 错误: {str(e)}")
+                        logger.error(f"解析 RE 標籤日期失敗: {tag}, 錯誤: {str(e)}")
                         
                 if not resale_dates:
                     continue
                     
-                # 获取最新的补货日期
+                # 獲取最新的補貨日期
                 next_resale_date = max(resale_dates)
                 
-                # 准备存储到 resale 集合的数据
+                # 準備存儲到 resale 集合的數據
                 resale_data = {
                     'url': product['url'],
                     'name': product['name'],
                     'price': product.get('price', 0),
                     'available': product.get('available', False),
                     'tags': product.get('tags', []),
-                    'resale_tags': new_resale_tags,  # 只存储新的 RE 标签
+                    'resale_tags': new_resale_tags,  # 只存儲新的 RE 標籤
                     'next_resale_date': next_resale_date,
                     'last_updated': datetime.now(TW_TIMEZONE),
-                    'detected_date': datetime.now(TW_TIMEZONE)  # 添加发现日期
+                    'detected_date': datetime.now(TW_TIMEZONE)  # 添加發現日期
                 }
                 
-                # 添加新记录
+                # 添加新記錄
                 self.resale.insert_one(resale_data)
                     
-            logger.info(f"RE 标签处理统计: 发现 {new_resale_tags_count} 个商品有新的 RE 标签")
+            logger.info(f"RE 標籤處理統計: 發現 {new_resale_tags_count} 個商品有新的 RE 標籤")
             return True
             
         except Exception as e:
-            logger.error(f"处理 RE 标签商品时发生错误: {str(e)}")
+            logger.error(f"處理 RE 標籤商品時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
             return False
             
     def get_resale_products(self, days=None):
-        """获取即将补货的商品
+        """獲取即將補貨的商品
         
         Args:
-            days: 如果指定，则只返回指定天数内即将补货的商品
+            days: 如果指定，則只返回指定天數內即將補貨的商品
         
         Returns:
-            符合条件的补货商品列表
+            符合條件的補貨商品列表
         """
         try:
             query = {}
             
-            # 如果指定了天数，添加日期筛选条件
+            # 如果指定了天數，添加日期篩選條件
             if days is not None:
                 today = datetime.now(TW_TIMEZONE)
                 target_date = today + timedelta(days=days)
@@ -402,7 +414,7 @@ class ChiikawaMonitor:
                     }
                 }
                 
-            # 按补货日期排序
+            # 按補貨日期排序
             products = list(self.resale.find(
                 query, 
                 {'_id': 0}
@@ -411,7 +423,7 @@ class ChiikawaMonitor:
             return products
             
         except Exception as e:
-            logger.error(f"获取补货商品时发生错误: {str(e)}")
+            logger.error(f"獲取補貨商品時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
             return []
 
@@ -420,7 +432,7 @@ class ChiikawaMonitor:
         try:
             return list(self.products.find({}, {'_id': 0}))
         except Exception as e:
-            logger.error(f"获取所有商品时发生错误: {str(e)}")
+            logger.error(f"獲取所有商品時發生錯誤: {str(e)}")
             return []
 
     def record_history(self, product, type_):
@@ -428,7 +440,7 @@ class ChiikawaMonitor:
         try:
             current_time = datetime.now(TW_TIMEZONE)
             
-            # 创建通用的历史数据
+            # 創建通用的歷史數據
             history_data = {
                 'date': current_time,
                 'type': type_,
@@ -437,26 +449,46 @@ class ChiikawaMonitor:
                 'time': current_time
             }
             
-            # 向原有的 history 集合写入数据（保持向后兼容性）
+            # 添加圖片URL（如果有）
+            if 'image_url' in product:
+                history_data['image_url'] = product['image_url']
+            
+            # 如果是下架商品，但沒有圖片URL，嘗試從資料庫獲取
+            if type_ == 'delisted' and 'image_url' not in history_data:
+                try:
+                    # 從資料庫中搜尋該商品
+                    existing_product = self.products.find_one({'url': product['url']})
+                    if existing_product and 'image_url' in existing_product:
+                        history_data['image_url'] = existing_product['image_url']
+                        logger.info(f"為下架商品 {product['name']} 從資料庫中恢復圖片URL")
+                    else:
+                        # 如果資料庫中沒有，使用默認圖片
+                        history_data['image_url'] = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
+                except Exception as e:
+                    logger.error(f"嘗試獲取下架商品圖片URL時出錯: {str(e)}")
+                    # 使用默認圖片
+                    history_data['image_url'] = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
+            
+            # 向原有的 history 集合寫入數據（保持向後兼容性）
             self.history.insert_one(history_data)
             
-            # 根据类型分别写入到对应的集合
+            # 根據類型分別寫入到對應的集合
             if type_ == 'new':
-                # 附加更多信息到新上架记录
+                # 附加更多信息到新上架記錄
                 new_data = history_data.copy()
-                # 添加额外的字段
+                # 添加額外的字段
                 if isinstance(product, dict):
                     new_data.update({
                         'price': product.get('price', 0),
                         'available': product.get('available', False),
                         'tags': product.get('tags', [])
                     })
-                # 写入到新上架集合
+                # 寫入到新上架集合
                 self.new.insert_one(new_data)
                 logger.info(f"商品已添加到新上架集合: {product['name']}")
                 
             elif type_ == 'delisted':
-                # 写入到下架集合
+                # 寫入到下架集合
                 self.delisted.insert_one(history_data)
                 logger.info(f"商品已添加到下架集合: {product['name']}")
                 
@@ -466,7 +498,7 @@ class ChiikawaMonitor:
             return False
 
     def get_today_history(self, type_):
-        """獲取今日的歷史記錄（旧方法，保持向后兼容性）"""
+        """獲取今日的歷史記錄（舊方法，保持向後兼容性）"""
         try:
             today = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
             query = {
@@ -475,11 +507,11 @@ class ChiikawaMonitor:
             }
             return list(self.history.find(query, {'_id': 0}))
         except Exception as e:
-            logger.error(f"获取历史记录时发生错误: {str(e)}")
+            logger.error(f"獲取歷史記錄時發生錯誤: {str(e)}")
             return []
         
     def get_today_new_products(self):
-        """获取今日新上架的商品"""
+        """獲取今日新上架的商品"""
         try:
             today = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
             query = {
@@ -487,11 +519,11 @@ class ChiikawaMonitor:
             }
             return list(self.new.find(query, {'_id': 0}))
         except Exception as e:
-            logger.error(f"获取今日新上架商品时发生错误: {str(e)}")
+            logger.error(f"獲取今日新上架商品時發生錯誤: {str(e)}")
             return []
         
     def get_today_delisted_products(self):
-        """获取今日下架的商品"""
+        """獲取今日下架的商品"""
         try:
             today = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
             query = {
@@ -499,11 +531,11 @@ class ChiikawaMonitor:
             }
             return list(self.delisted.find(query, {'_id': 0}))
         except Exception as e:
-            logger.error(f"获取今日下架商品时发生错误: {str(e)}")
+            logger.error(f"獲取今日下架商品時發生錯誤: {str(e)}")
             return []
         
     def get_period_new_products(self, days=7):
-        """获取指定天数内新上架的商品"""
+        """獲取指定天數內新上架的商品"""
         try:
             start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -512,11 +544,11 @@ class ChiikawaMonitor:
             }
             return list(self.new.find(query, {'_id': 0}).sort('date', -1))
         except Exception as e:
-            logger.error(f"获取指定天数内新上架商品时发生错误: {str(e)}")
+            logger.error(f"獲取指定天數內新上架商品時發生錯誤: {str(e)}")
             return []
         
     def get_period_delisted_products(self, days=7):
-        """获取指定天数内下架的商品"""
+        """獲取指定天數內下架的商品"""
         try:
             start_date = datetime.now(TW_TIMEZONE) - timedelta(days=days)
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -525,7 +557,7 @@ class ChiikawaMonitor:
             }
             return list(self.delisted.find(query, {'_id': 0}).sort('date', -1))
         except Exception as e:
-            logger.error(f"获取指定天数内下架商品时发生错误: {str(e)}")
+            logger.error(f"獲取指定天數內下架商品時發生錯誤: {str(e)}")
             return []
 
     def check_product_url(self, url):
@@ -604,84 +636,84 @@ class ChiikawaMonitor:
             return None
 
     def clean_expired_resale_records(self):
-        """清理已过期的 resale 记录"""
+        """清理已過期的補貨記錄"""
         try:
-            # 确保集合存在
+            # 確保集合存在
             collections = self.db.list_collection_names()
             if 'resale' not in collections:
-                logger.info("resale 集合不存在，无需清理")
+                logger.info("resale 集合不存在，無需清理")
                 return True
                 
             current_date = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
             
-            # 查找过期的记录
+            # 查找過期的記錄
             query = {
                 'next_resale_date': {'$lt': current_date}
             }
             
-            # 获取过期记录数量
+            # 獲取過期記錄數量
             expired_count = self.resale.count_documents(query)
             
             if expired_count > 0:
-                # 删除过期记录
+                # 刪除過期記錄
                 result = self.resale.delete_many(query)
-                logger.info(f"已清理 {result.deleted_count} 条过期的补货记录")
+                logger.info(f"已清理 {result.deleted_count} 條過期的補貨記錄")
             else:
-                logger.info("没有发现过期的补货记录")
+                logger.info("沒有發現過期的補貨記錄")
                 
             return True
         except Exception as e:
-            logger.error(f"清理过期补货记录时发生错误: {str(e)}")
+            logger.error(f"清理過期補貨記錄時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
             return False
             
     def clean_old_records(self):
-        """清理过旧的数据记录"""
+        """清理過舊的數據記錄"""
         try:
-            # 获取集合列表
+            # 獲取集合列表
             collections = self.db.list_collection_names()
             
-            # 计算时间点
+            # 計算時間點
             now = datetime.now(TW_TIMEZONE)
             seven_days_ago = now - timedelta(days=7)
             thirty_days_ago = now - timedelta(days=30)
             
-            # 清理超过7天的 new 记录
+            # 清理超過7天的 new 記錄
             if 'new' in collections:
                 new_result = self.new.delete_many({'date': {'$lt': seven_days_ago}})
-                logger.info(f"已清理 {new_result.deleted_count} 条超过7天的新上架记录")
+                logger.info(f"已清理 {new_result.deleted_count} 條超過7天的新上架記錄")
             else:
-                logger.info("new 集合不存在，无需清理")
+                logger.info("new 集合不存在，無需清理")
             
-            # 清理超过7天的 delisted 记录
+            # 清理超過7天的 delisted 記錄
             if 'delisted' in collections:
                 delisted_result = self.delisted.delete_many({'date': {'$lt': seven_days_ago}})
-                logger.info(f"已清理 {delisted_result.deleted_count} 条超过7天的下架记录")
+                logger.info(f"已清理 {delisted_result.deleted_count} 條超過7天的下架記錄")
             else:
-                logger.info("delisted 集合不存在，无需清理")
+                logger.info("delisted 集合不存在，無需清理")
             
-            # 清理超过30天的 history 记录
+            # 清理超過30天的 history 記錄
             if 'history' in collections:
                 history_result = self.history.delete_many({'date': {'$lt': thirty_days_ago}})
-                logger.info(f"已清理 {history_result.deleted_count} 条超过30天的历史记录")
+                logger.info(f"已清理 {history_result.deleted_count} 條超過30天的歷史記錄")
             else:
-                logger.info("history 集合不存在，无需清理")
+                logger.info("history 集合不存在，無需清理")
             
             return True
         except Exception as e:
-            logger.error(f"清理过旧记录时发生错误: {str(e)}")
+            logger.error(f"清理過舊記錄時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
             return False
 
     def ensure_collections_exist(self):
-        """确保所有必要的集合存在"""
+        """確保所有必要的集合存在"""
         collections = self.db.list_collection_names()
         required_collections = ['products', 'history', 'resale', 'new', 'delisted']
         
         for collection in required_collections:
             if collection not in collections:
-                # 创建集合（在MongoDB中，写入第一个文档时会自动创建集合）
-                logger.info(f"集合 '{collection}' 不存在，将自动创建")
+                # 創建集合（在MongoDB中，寫入第一個文檔時會自動創建集合）
+                logger.info(f"集合 '{collection}' 不存在，將自動創建")
                 
     def ensure_indexes(self):
         """确保所有必要的索引存在"""
