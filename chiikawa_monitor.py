@@ -16,6 +16,7 @@ import sys
 import traceback
 import brotli  # 添加 brotli 支持
 import pytz
+from imgurpython import ImgurClient
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -84,6 +85,15 @@ class ChiikawaMonitor:
         self.session.headers.update(self.headers)
         self.session.verify = False
 
+        # Imgur client setup
+        self.imgur_client_id = os.environ.get('IMGUR_CLIENT_ID')
+        self.imgur_client_secret = os.environ.get('IMGUR_CLIENT_SECRET')
+        if self.imgur_client_id and self.imgur_client_secret:
+            self.imgur_client = ImgurClient(self.imgur_client_id, self.imgur_client_secret)
+        else:
+            self.imgur_client = None
+            logging.warning("Imgur credentials not found. URL shortening will be disabled.")
+
     def decode_response(self, response):
         """解碼響應內容，處理各種壓縮格式"""
         try:
@@ -113,6 +123,26 @@ class ChiikawaMonitor:
         except Exception as e:
             logger.error(f"更新 Excel 時發生錯誤：{str(e)}")
             return False
+
+    def shorten_image_url(self, original_url):
+        """將商品圖片上傳到 Imgur 並返回較短的 URL"""
+        try:
+            if not self.imgur_client:
+                return original_url
+                
+            # 檢查 URL 是否已經是 Imgur URL
+            if 'imgur.com' in original_url:
+                return original_url
+                
+            # 上傳圖片到 Imgur
+            response = self.imgur_client.upload_from_url(original_url)
+            if response and 'link' in response:
+                return response['link']
+            
+            return original_url
+        except Exception as e:
+            logging.error(f"上傳圖片到 Imgur 失敗：{str(e)}")
+            return original_url
 
     def fetch_products(self):
         """獲取所有商品信息"""
@@ -266,6 +296,15 @@ class ChiikawaMonitor:
                 
             logger.info(f"\n=== 商品獲取完成 ===")
             logger.info(f"總共獲取: {total_products} 個商品")
+
+            for product in new_products_data:
+                if 'images' in product and product['images']:
+                    # 獲取第一張圖片的 URL
+                    image_url = product['images'][0]['src']
+                    # 轉換為短 URL
+                    short_url = self.shorten_image_url(image_url)
+                    product['image_url'] = short_url
+            
             return new_products_data
             
         except Exception as e:
@@ -303,6 +342,11 @@ class ChiikawaMonitor:
                 'time': datetime.now(TW_TIMEZONE)
             }
             self.history.insert_one(history_data)
+            
+            # 如果有圖片 URL，確保使用短 URL
+            if 'image_url' in product:
+                product['image_url'] = self.shorten_image_url(product['image_url'])
+            
             return True
         except Exception as e:
             logger.error(f"記錄歷史時發生錯誤：{str(e)}")
