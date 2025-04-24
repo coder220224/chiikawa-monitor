@@ -1253,7 +1253,7 @@ def create_product_flex_message(title, products, icon="🆕"):
         # 创建每个气泡的内容
         contents = [
             TextComponent(
-                text=f"{icon} {title} ({bubble_index + 1}/{total_bubbles})",
+                text=f"{icon} {title}",
                 weight="bold",
                 size="xl"
             )
@@ -1286,15 +1286,10 @@ def create_product_flex_message(title, products, icon="🆕"):
                                 flex=0,
                                 contents=[
                                     ImageComponent(
-                                        url=product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                                        url=product.get('image_url', 'https://cdn.shopify.com/s/files/1/0626/7142/1681/files/4905114930365_1.jpg?v=1744782283'),
                                         size="full",
                                         aspect_mode="cover",
                                         aspect_ratio="1:1"
-                                    ) if product.get('image_url') else TextComponent(
-                                        text="🖼️",
-                                        size="xxl",
-                                        align="center",
-                                        gravity="center"
                                     )
                                 ]
                             ),
