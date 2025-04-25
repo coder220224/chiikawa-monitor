@@ -197,8 +197,9 @@ async def check_updates(ctx):
         
         # 獲取舊的商品資料
         try:
+            start_time = time.time()
             old_products = {p['url']: p for p in monitor.get_all_products()}
-            logger.info(f"成功獲取現有商品數據：{len(old_products)} 個")
+            logger.info(f"成功獲取現有商品數據：{len(old_products)} 個，耗時：{time.time() - start_time:.2f}秒")
         except Exception as e:
             error_msg = f"獲取現有商品數據失敗：{str(e)}"
             logger.error(error_msg)
@@ -209,7 +210,9 @@ async def check_updates(ctx):
         # 獲取新的商品資料
         try:
             logger.info("開始獲取新商品數據...")
+            start_time = time.time()
             new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
+            logger.info(f"獲取新商品數據完成，耗時：{time.time() - start_time:.2f}秒")
             
             if not new_products_data:
                 error_msg = "獲取新商品數據失敗：返回空列表"
@@ -232,37 +235,74 @@ async def check_updates(ctx):
         is_first_run = len(old_products) == 0
         logger.info(f"是否首次執行：{is_first_run}")
         
-        # 比對差異
-        new_listings = []  # 新上架
-        delisted = []      # 下架
-        missing_products = []  # 暫時找不到的商品
+        # 比對差異（使用集合操作提高效率）
+        start_time = time.time()
+        new_urls = set(new_products.keys())
+        old_urls = set(old_products.keys())
         
-        # 檢查新上架
-        for url, new_product in new_products.items():
-            if url not in old_products and not is_first_run:  # 如果是第一次執行，不標記為新上架
-                new_listings.append((new_product['name'], url))
-                await bot.loop.run_in_executor(None, lambda: monitor.record_history(new_product, 'new'))
-                logger.info(f"新商品上架: {new_product['name']}")
+        # 找出新上架的URL
+        new_listing_urls = new_urls - old_urls if not is_first_run else set()
+        # 找出下架的URL
+        delisted_urls = old_urls - new_urls if not is_first_run else set()
         
-        # 檢查下架（如果不是第一次執行才檢查）
-        if not is_first_run:
-            for url, old_product in old_products.items():
-                if url not in new_products:
-                    missing_products.append((old_product['name'], url))
-                    logger.info(f"商品不見了，準備檢查 URL: {old_product['name']}")
+        new_listings = [(new_products[url]['name'], url) for url in new_listing_urls]
+        missing_products = [(old_products[url]['name'], url) for url in delisted_urls]
+        
+        logger.info(f"差異比對完成，耗時：{time.time() - start_time:.2f}秒")
+        logger.info(f"發現 {len(new_listings)} 個新上架商品，{len(missing_products)} 個可能下架商品")
+        
+        # 批量檢查下架商品
+        delisted = []
+        if not is_first_run and missing_products:
+            start_time = time.time()
+            logger.info(f"開始檢查 {len(missing_products)} 個可能下架的商品...")
             
-            # 只對不見的商品進行 URL 檢查
-            for name, url in missing_products:
-                is_available = await bot.loop.run_in_executor(None, lambda u=url: monitor.check_product_url(u))
-                if not is_available:
-                    delisted.append((name, url))
-                    await bot.loop.run_in_executor(None, lambda n=name, u=url: monitor.record_history({'name': n, 'url': u}, 'delisted'))
-                    logger.info(f"確認商品已下架: {name}")
-                else:
-                    logger.info(f"商品 {name} 暫時不在列表中，但 URL 仍可訪問")
+            # 批量檢查，每批20個
+            batch_size = 20
+            for i in range(0, len(missing_products), batch_size):
+                batch = missing_products[i:i + batch_size]
+                batch_results = await asyncio.gather(
+                    *[bot.loop.run_in_executor(None, lambda u=url: monitor.check_product_url(u)) 
+                      for name, url in batch]
+                )
+                
+                # 處理批次結果
+                for (name, url), is_available in zip(batch, batch_results):
+                    if not is_available:
+                        delisted.append((name, url))
+                        await bot.loop.run_in_executor(
+                            None, 
+                            lambda n=name, u=url: monitor.record_history({'name': n, 'url': u}, 'delisted')
+                        )
+                
+                logger.info(f"已檢查 {min(i + batch_size, len(missing_products))} / {len(missing_products)} 個商品")
+            
+            logger.info(f"下架商品檢查完成，確認 {len(delisted)} 個商品下架，耗時：{time.time() - start_time:.2f}秒")
+        
+        # 批量記錄新上架商品
+        if new_listings:
+            start_time = time.time()
+            logger.info(f"開始記錄 {len(new_listings)} 個新上架商品...")
+            
+            # 批量處理，每批50個
+            batch_size = 50
+            for i in range(0, len(new_listings), batch_size):
+                batch = new_listings[i:i + batch_size]
+                await asyncio.gather(
+                    *[bot.loop.run_in_executor(
+                        None,
+                        lambda p=new_products[url]: monitor.record_history(p, 'new')
+                    ) for name, url in batch]
+                )
+                
+                logger.info(f"已記錄 {min(i + batch_size, len(new_listings))} / {len(new_listings)} 個新商品")
+            
+            logger.info(f"新商品記錄完成，耗時：{time.time() - start_time:.2f}秒")
         
         # 更新資料庫
+        start_time = time.time()
         await bot.loop.run_in_executor(None, lambda: monitor.update_products(new_products_data))
+        logger.info(f"資料庫更新完成，耗時：{time.time() - start_time:.2f}秒")
         
         # 如果是第一次執行，發送初始化訊息
         if is_first_run:
@@ -325,6 +365,7 @@ async def check_updates(ctx):
         error_msg = f"檢查更新時發生錯誤: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
+        await channel.send(f"錯誤：{error_msg}")
 
 @bot.event
 async def on_ready():
