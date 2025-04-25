@@ -283,8 +283,12 @@ class ChiikawaMonitor:
             return []
 
     def update_products(self, products_data):
-        """更新數據庫中的商品資料"""
+        """更新商品数据到数据库"""
         try:
+            if not products_data:
+                logger.warning("没有商品数据需要更新")
+                return
+            
             # 获取所有在线商品的 URL
             online_urls = {product['url'] for product in products_data if product.get('available', False)}
             
@@ -306,16 +310,39 @@ class ChiikawaMonitor:
                 if resale_result.deleted_count > 0:
                     logger.info(f"检测到 {resale_result.deleted_count} 个补货商品已上架，已从补货集合中删除")
             
-            # 清空現有資料
-            self.products.delete_many({})
+            # 更新时间
+            current_time = datetime.now(TW_TIMEZONE)
             
-            # 插入新資料
-            if products_data:
-                self.products.insert_many(products_data)
+            # 准备批量操作
+            operations = []
+            for product in products_data:
+                # 确保产品数据包含所有必要字段
+                if 'url' not in product:
+                    continue
+                    
+                # 添加或更新时间戳
+                product['last_seen'] = current_time
                 
-                # 同步更新history集合中的商品库存状态
-                self.sync_product_availability(products_data)
-                
+                # 创建更新操作
+                operations.append(
+                    {
+                        'replaceOne': {
+                            'filter': {'url': product['url']},
+                            'replacement': product,
+                            'upsert': True
+                        }
+                    }
+                )
+            
+            # 执行批量操作
+            if operations:
+                result = self.products.bulk_write(operations, ordered=False)
+                logger.info(f"数据库更新完成：{len(operations)} 个商品")
+                logger.info(f"更新结果：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
+            
+            # 同步更新history集合中的商品库存状态
+            self.sync_product_availability(products_data)
+            
             # 处理 RE 标签的商品
             self.process_resale_items(products_data)
             
@@ -324,10 +351,12 @@ class ChiikawaMonitor:
             
             # 清理过旧的数据记录
             self.clean_old_records()
-                
+            
             return True
+            
         except Exception as e:
-            logger.error(f"更新數據庫時發生錯誤：{str(e)}")
+            logger.error(f"更新数据库时发生错误：{str(e)}")
+            logger.error(traceback.format_exc())
             return False
 
     def sync_product_availability(self, products_data):
