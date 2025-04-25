@@ -290,41 +290,37 @@ class ChiikawaMonitor:
                 logger.warning("没有商品数据需要更新")
                 return
             
-            # 获取所有在线商品的 URL
-            online_urls = {product['url'] for product in products_data if product.get('available', False)}
+            start_time = time.time()
+            logger.info("开始更新商品数据...")
             
-            # 获取所有新上架商品的 URL（不论是否有货）
-            all_product_urls = {product['url'] for product in products_data}
+            # 1. 获取new集合中的商品URL
+            new_products = list(self.new.find({}, {'url': 1, '_id': 0}))
+            new_urls = {p['url'] for p in new_products}
             
-            if all_product_urls:
-                # 检查是否有商品从下架状态恢复
+            # 2. 如果new集合中有商品，检查并清理delisted和resale集合
+            if new_urls:
+                # 从下架集合中删除已重新上架的商品
                 delisted_result = self.delisted.delete_many({
-                    'url': {'$in': list(all_product_urls)}
+                    'url': {'$in': list(new_urls)}
                 })
                 if delisted_result.deleted_count > 0:
-                    logger.info(f"检测到 {delisted_result.deleted_count} 个商品重新上架，已从下架集合中删除")
+                    logger.info(f"从下架集合中删除 {delisted_result.deleted_count} 个重新上架的商品")
                 
-                # 检查是否有补货商品已经上架
+                # 从补货集合中删除已重新上架的商品
                 resale_result = self.resale.delete_many({
-                    'url': {'$in': list(all_product_urls)}
+                    'url': {'$in': list(new_urls)}
                 })
                 if resale_result.deleted_count > 0:
-                    logger.info(f"检测到 {resale_result.deleted_count} 个补货商品已上架，已从补货集合中删除")
+                    logger.info(f"从补货集合中删除 {resale_result.deleted_count} 个已上架的商品")
             
-            # 更新时间
+            # 3. 更新商品数据
             current_time = datetime.now(TW_TIMEZONE)
-            
-            # 准备批量操作
             operations = []
             for product in products_data:
-                # 确保产品数据包含所有必要字段
                 if 'url' not in product:
                     continue
-                    
-                # 添加或更新时间戳
-                product['last_seen'] = current_time
                 
-                # 创建更新操作
+                product['last_seen'] = current_time
                 operations.append(
                     pymongo.UpdateOne(
                         {'url': product['url']},
@@ -333,10 +329,10 @@ class ChiikawaMonitor:
                     )
                 )
             
-            # 执行批量操作
+            # 执行批量更新
             if operations:
                 result = self.products.bulk_write(operations, ordered=False)
-                logger.info(f"数据库更新完成：{len(operations)} 个商品")
+                logger.info(f"商品数据更新完成：{len(operations)} 个商品")
                 logger.info(f"更新结果：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
             
             # 同步更新history集合中的商品库存状态
@@ -351,6 +347,7 @@ class ChiikawaMonitor:
             # 清理过旧的数据记录
             self.clean_old_records()
             
+            logger.info(f"所有更新操作完成，总耗时：{time.time() - start_time:.2f}秒")
             return True
             
         except Exception as e:
