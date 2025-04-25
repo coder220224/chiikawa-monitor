@@ -285,6 +285,27 @@ class ChiikawaMonitor:
     def update_products(self, products_data):
         """更新數據庫中的商品資料"""
         try:
+            # 获取所有在线商品的 URL
+            online_urls = {product['url'] for product in products_data if product.get('available', False)}
+            
+            # 获取所有新上架商品的 URL（不论是否有货）
+            all_product_urls = {product['url'] for product in products_data}
+            
+            if all_product_urls:
+                # 检查是否有商品从下架状态恢复
+                delisted_result = self.delisted.delete_many({
+                    'url': {'$in': list(all_product_urls)}
+                })
+                if delisted_result.deleted_count > 0:
+                    logger.info(f"检测到 {delisted_result.deleted_count} 个商品重新上架，已从下架集合中删除")
+                
+                # 检查是否有补货商品已经上架
+                resale_result = self.resale.delete_many({
+                    'url': {'$in': list(all_product_urls)}
+                })
+                if resale_result.deleted_count > 0:
+                    logger.info(f"检测到 {resale_result.deleted_count} 个补货商品已上架，已从补货集合中删除")
+            
             # 清空現有資料
             self.products.delete_many({})
             
@@ -512,6 +533,15 @@ class ChiikawaMonitor:
             
             # 根據類型分別寫入到對應的集合
             if type_ == 'new':
+                # 如果是新上架商品，先检查并删除下架和补货集合中的记录
+                delisted_result = self.delisted.delete_many({'url': product['url']})
+                if delisted_result.deleted_count > 0:
+                    logger.info(f"商品重新上架，从下架集合中删除: {product['name']}")
+                    
+                resale_result = self.resale.delete_many({'url': product['url']})
+                if resale_result.deleted_count > 0:
+                    logger.info(f"商品已上架，从补货集合中删除: {product['name']}")
+                
                 # 附加更多信息到新上架記錄
                 new_data = history_data.copy()
                 # 添加額外的字段
@@ -529,7 +559,7 @@ class ChiikawaMonitor:
                 # 寫入到下架集合
                 self.delisted.insert_one(history_data)
                 logger.info(f"商品已添加到下架集合: {product['name']}")
-                
+            
             return True
         except Exception as e:
             logger.error(f"記錄歷史時發生錯誤：{str(e)}")
