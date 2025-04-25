@@ -292,6 +292,9 @@ class ChiikawaMonitor:
             if products_data:
                 self.products.insert_many(products_data)
                 
+                # 同步更新history集合中的商品库存状态
+                self.sync_product_availability(products_data)
+                
             # 处理 RE 标签的商品
             self.process_resale_items(products_data)
             
@@ -305,7 +308,42 @@ class ChiikawaMonitor:
         except Exception as e:
             logger.error(f"更新數據庫時發生錯誤：{str(e)}")
             return False
+
+    def sync_product_availability(self, products_data):
+        """同步更新history和new集合中的商品库存状态"""
+        try:
+            # 将商品数据转换为以URL为键的字典
+            products_dict = {}
+            for product in products_data:
+                if 'url' in product and 'available' in product:
+                    products_dict[product['url']] = product['available']
             
+            # 更新history集合中的记录
+            history_count = 0
+            new_count = 0
+            
+            # 更新history集合
+            for url, available in products_dict.items():
+                # 只更新type为new的记录
+                result = self.history.update_many(
+                    {'url': url, 'type': 'new'},
+                    {'$set': {'available': available}}
+                )
+                history_count += result.modified_count
+                
+                # 同时更新new集合中的记录
+                result_new = self.new.update_many(
+                    {'url': url},
+                    {'$set': {'available': available}}
+                )
+                new_count += result_new.modified_count
+            
+            logger.info(f"库存状态同步完成：history集合已更新 {history_count} 条记录，new集合已更新 {new_count} 条记录")
+            return True
+        except Exception as e:
+            logger.error(f"同步库存状态时发生错误: {str(e)}")
+            return False
+
     def process_resale_items(self, products_data):
         """處理具有 RE 標籤的商品，並更新 resale 集合"""
         try:
