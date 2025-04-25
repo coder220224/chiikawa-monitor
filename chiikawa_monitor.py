@@ -16,6 +16,7 @@ import sys
 import traceback
 import brotli  # 添加 brotli 支持
 import pytz
+import pymongo
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -325,13 +326,11 @@ class ChiikawaMonitor:
                 
                 # 创建更新操作
                 operations.append(
-                    {
-                        'replaceOne': {
-                            'filter': {'url': product['url']},
-                            'replacement': product,
-                            'upsert': True
-                        }
-                    }
+                    pymongo.UpdateOne(
+                        {'url': product['url']},
+                        {'$set': product},
+                        upsert=True
+                    )
                 )
             
             # 执行批量操作
