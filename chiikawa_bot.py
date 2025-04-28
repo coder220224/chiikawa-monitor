@@ -1758,6 +1758,61 @@ def handle_menu_action(event, action):
         except:
             pass
 
+@bot.command(name='setdefault')
+@has_role(ADMIN_ROLE_ID)
+async def set_default_menu(ctx, menu_id: str = None):
+    """手动设置默认Rich Menu"""
+    try:
+        if not menu_id:
+            # 获取现有的Rich Menu列表
+            rich_menu_list = line_bot_api.get_rich_menu_list()
+            if not rich_menu_list:
+                await ctx.send("没有找到任何Rich Menu")
+                return
+                
+            # 默认使用第一个Rich Menu
+            menu_id = rich_menu_list[0].rich_menu_id
+            
+        # 设置默认Rich Menu
+        line_bot_api.set_default_rich_menu(menu_id)
+        await ctx.send(f"已将Rich Menu {menu_id} 设置为默认选单")
+        logger.info(f"已手动设置默认Rich Menu: {menu_id}")
+        
+    except Exception as e:
+        error_msg = f"设置默认Rich Menu失败：{str(e)}"
+        await ctx.send(error_msg)
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+
+@bot.command(name='resetmenu')
+@has_role(ADMIN_ROLE_ID)
+async def reset_rich_menu(ctx):
+    """重置所有Rich Menu"""
+    try:
+        await ctx.send("开始重置Rich Menu...")
+        
+        # 重新创建Rich Menu
+        success = await create_rich_menus()
+        
+        if success:
+            await ctx.send("Rich Menu重置成功！")
+            
+            # 显示当前状态
+            rich_menu_list = line_bot_api.get_rich_menu_list()
+            status = f"当前有 {len(rich_menu_list)} 个Rich Menu:\n"
+            for menu in rich_menu_list:
+                status += f"ID: {menu.rich_menu_id}\n名称: {menu.name}\n状态: {'默认' if menu.selected else '未选中'}\n\n"
+            
+            await ctx.send(status)
+        else:
+            await ctx.send("Rich Menu重置失败，请查看日志获取详细信息")
+            
+    except Exception as e:
+        error_msg = f"重置Rich Menu失败：{str(e)}"
+        await ctx.send(error_msg)
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+
 # 運行 Bot
 if __name__ == "__main__":
     try:
