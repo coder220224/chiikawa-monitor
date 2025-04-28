@@ -19,26 +19,30 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.messaging import MessagingApi, MessagingApiBlob, Configuration
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
+from linebot.v3.messaging.messages import (
     TextMessage,
-    TextSendMessage,
-    FlexSendMessage,
-    FlexContainer,
+    FlexMessage,
+    TemplateMessage,
+    ImageCarouselTemplate,
+    ImageCarouselColumn
+)
+from linebot.v3.messaging.messages.flex import (
     BubbleContainer,
     BoxComponent,
     TextComponent,
     ButtonComponent,
-    URIAction,
     CarouselContainer,
-    ImageComponent,
-    ImageCarouselTemplate,
-    ImageCarouselColumn,
-    TemplateSendMessage,
+    ImageComponent
+)
+from linebot.v3.messaging.actions import (
+    URIAction,
+    PostbackAction
+)
+from linebot.v3.messaging.models import (
     RichMenu,
     RichMenuArea,
     RichMenuBounds,
-    RichMenuSize,
-    PostbackAction
+    RichMenuSize
 )
 import time
 import requests
@@ -1036,7 +1040,7 @@ def handle_line_message(event):
                     if days_history <= 0 or days_history > 30:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextSendMessage(text="請指定 1-30 天的範圍")
+                            TextMessage(text="請指定 1-30 天的範圍")
                         )
                         return
                 except ValueError:
@@ -1054,7 +1058,7 @@ def handle_line_message(event):
                     if days_new < 0 or days_new > 7:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                            TextMessage(text="請指定 0-7 天的範圍（0表示今天）")
                         )
                         return
                 except ValueError:
@@ -1072,7 +1076,7 @@ def handle_line_message(event):
                     if days_delisted < 0 or days_delisted > 7:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                            TextMessage(text="請指定 0-7 天的範圍（0表示今天）")
                         )
                         return
                 except ValueError:
@@ -1112,7 +1116,7 @@ def handle_line_message(event):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="處理請求時發生錯誤，請稍後再試。")
+                TextMessage(text="處理請求時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1130,7 +1134,7 @@ def handle_line_new_products(event, days):
         if not new_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="指定天數內沒有新商品上架")
+                TextMessage(text="指定天數內沒有新商品上架")
             )
             return
     
@@ -1155,7 +1159,7 @@ def handle_line_new_products(event, days):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"{date_str} 上架商品 (共{total_count}件)"
-            messages.append(TextSendMessage(text=date_title))
+            messages.append(TextMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1192,7 +1196,7 @@ def handle_line_new_products(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="獲取上架商品時發生錯誤，請稍後再試。")
+                TextMessage(text="獲取上架商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1210,7 +1214,7 @@ def handle_line_delisted_products(event, days):
         if not delisted_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="指定天數內沒有商品下架")
+                TextMessage(text="指定天數內沒有商品下架")
             )
             return
     
@@ -1235,7 +1239,7 @@ def handle_line_delisted_products(event, days):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"{date_str} 下架商品 (共{total_count}件)"
-            messages.append(TextSendMessage(text=date_title))
+            messages.append(TextMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1272,7 +1276,7 @@ def handle_line_delisted_products(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="獲取下架商品時發生錯誤，請稍後再試。")
+                TextMessage(text="獲取下架商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1301,7 +1305,7 @@ def handle_line_status(reply_token):
     
     line_bot_api.reply_message(
         reply_token,
-        FlexSendMessage(alt_text="服務狀態", contents=bubble)
+        FlexMessage(alt_text="服務狀態", contents=bubble)
     )
 
 def handle_line_history(event, days):
@@ -1309,7 +1313,7 @@ def handle_line_history(event, days):
     if days <= 0 or days > 30:
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="請指定 1-30 天的範圍")
+            TextMessage(text="請指定 1-30 天的範圍")
         )
         return
     
@@ -1325,7 +1329,7 @@ def handle_line_history(event, days):
         if not history_records:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
+                TextMessage(text=f"近 {days} 天沒有商品變更記錄")
             )
             return
         
@@ -1353,7 +1357,7 @@ def handle_line_history(event, days):
             
             # 發送日期標題
             date_title = f"{date_str} 商品變更記錄 (上架: {new_count}件 | 下架: {del_count}件)"
-            messages.append(TextSendMessage(text=date_title))
+            messages.append(TextMessage(text=date_title))
             
             # 處理上架商品 (如果有的話)
             if new_count > 0:
@@ -1365,7 +1369,7 @@ def handle_line_history(event, days):
                 
                 # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
-                    messages.append(TextSendMessage(text=f"🆕 上架商品 ({new_count}件)"))
+                    messages.append(TextMessage(text=f"🆕 上架商品 ({new_count}件)"))
                 
                 for i in range(carousel_count):
                     start_idx = i * items_per_carousel
@@ -1387,7 +1391,7 @@ def handle_line_history(event, days):
                 
                 # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
-                    messages.append(TextSendMessage(text=f"❌ 下架商品 ({del_count}件)"))
+                    messages.append(TextMessage(text=f"❌ 下架商品 ({del_count}件)"))
                 
                 for i in range(carousel_count):
                     start_idx = i * items_per_carousel
@@ -1420,50 +1424,30 @@ def handle_line_history(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="獲取歷史記錄時發生錯誤，請稍後再試。")
+                TextMessage(text="獲取歷史記錄時發生錯誤，請稍後再試。")
             )
         except:
             pass
 
-def create_image_carousel(products):
-    """創建Image Carousel消息"""
-    # 確保不超過10個項目(LINE的限制)
-    if len(products) > 10:
-        products = products[:10]
-    
-    # 如果沒有商品，返回None
-    if not products:
-        return None
-    
+def create_image_carousel(products, start_idx=0, max_columns=10):
+    """创建图片轮播消息"""
     columns = []
-    for product in products:
-        # 處理標籤文字，確保不超過Label的12字符限制
-        name = product['name']
-        if len(name) > 12:
-            label = name[:11] + "…"
-        else:
-            label = name
-        
-        # 獲取圖片URL，如果沒有則使用默認圖片
-        image_url = product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png')
-        
-        # 創建列
+    for i in range(start_idx, min(start_idx + max_columns, len(products))):
+        product = products[i]
         column = ImageCarouselColumn(
-            image_url=image_url,
+            image_url=product['image_url'],
             action=URIAction(
-                label=label,
+                label=f"{product['name'][:12]}...",
                 uri=product['url']
             )
         )
         columns.append(column)
     
-    # 創建圖片輪播
     carousel_template = ImageCarouselTemplate(columns=columns)
-    message = TemplateSendMessage(
+    message = TemplateMessage(
         alt_text="商品列表",
         template=carousel_template
     )
-    
     return message
 
 def handle_line_help(reply_token):
@@ -1480,7 +1464,7 @@ def handle_line_help(reply_token):
     
     line_bot_api.reply_message(
         reply_token,
-        TextSendMessage(text=help_text)
+        TextMessage(text=help_text)
     )
 
 def handle_line_restock(event):
@@ -1492,7 +1476,7 @@ def handle_line_restock(event):
         if not resale_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="目前沒有即將補貨的商品")
+                TextMessage(text="目前沒有即將補貨的商品")
             )
             return
         
@@ -1535,7 +1519,7 @@ def handle_line_restock(event):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"補貨日期: {date_display} (共{total_count}件)"
-            messages.append(TextSendMessage(text=date_title))
+            messages.append(TextMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1572,7 +1556,7 @@ def handle_line_restock(event):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="獲取補貨商品時發生錯誤，請稍後再試。")
+                TextMessage(text="獲取補貨商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1729,7 +1713,7 @@ def handle_menu_action(event, action):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="处理请求时发生错误，请稍后再试。")
+                TextMessage(text="处理请求时发生错误，请稍后再试。")
             )
         except:
             pass
