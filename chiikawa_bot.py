@@ -50,9 +50,12 @@ LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
 # Rich Menu 配置
 RICH_MENU_SIZE = RichMenuSize(width=2500, height=1686)
 RICH_MENU_IMAGES = {
-    'page1': 'https://i.ibb.co/Y4TKyzj8/chiikawa.png',  # 替换为实际的图片URL
-    'page2': 'https://i.ibb.co/Y4TKyzj8/chiikawa.png'   # 替换为实际的图片URL
+    'page1': 'https://i.ibb.co/LDhqJLp6/chiikawa.png',  # 替换为实际的图片URL
+    'page2': 'https://i.ibb.co/LDhqJLp6/chiikawa.png'   # 替换为实际的图片URL
 }
+
+# 全局变量用于存储Rich Menu IDs
+RICH_MENU_IDS = {}
 
 def check_running():
     """檢查是否已有實例在運行"""
@@ -1556,9 +1559,32 @@ def handle_line_restock(event):
         except:
             pass
 
+async def delete_all_rich_menus():
+    """删除所有现有的Rich Menu"""
+    try:
+        # 获取所有Rich Menu
+        rich_menu_list = line_bot_api.get_rich_menu_list()
+        
+        # 删除每个Rich Menu
+        for rich_menu in rich_menu_list:
+            line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
+            logger.info(f"已删除Rich Menu: {rich_menu.rich_menu_id}")
+        
+        logger.info("所有Rich Menu已删除")
+        return True
+    except Exception as e:
+        logger.error(f"删除Rich Menu时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
+
 async def create_rich_menus():
     """创建分页式Rich Menu"""
     try:
+        # 先删除现有的Rich Menu
+        await delete_all_rich_menus()
+        
+        logger.info("开始创建新的Rich Menu...")
+        
         # 创建第一页Rich Menu
         rich_menu_1 = RichMenu(
             size=RICH_MENU_SIZE,
@@ -1584,6 +1610,10 @@ async def create_rich_menus():
                 )
             ]
         )
+
+        logger.info("正在注册第一页Rich Menu...")
+        rich_menu_id_1 = line_bot_api.create_rich_menu(rich_menu_1)
+        logger.info(f"第一页Rich Menu创建成功，ID: {rich_menu_id_1}")
 
         # 创建第二页Rich Menu
         rich_menu_2 = RichMenu(
@@ -1611,30 +1641,38 @@ async def create_rich_menus():
             ]
         )
 
-        # 注册Rich Menu
-        rich_menu_id_1 = line_bot_api.create_rich_menu(rich_menu_1)
+        logger.info("正在注册第二页Rich Menu...")
         rich_menu_id_2 = line_bot_api.create_rich_menu(rich_menu_2)
+        logger.info(f"第二页Rich Menu创建成功，ID: {rich_menu_id_2}")
 
         # 从URL下载并上传Rich Menu图片
         async with aiohttp.ClientSession() as session:
             # 上传第一页图片
+            logger.info(f"正在下载第一页图片: {RICH_MENU_IMAGES['page1']}")
             async with session.get(RICH_MENU_IMAGES['page1']) as response:
                 if response.status == 200:
                     image_data = await response.read()
+                    logger.info("第一页图片下载成功，正在上传到LINE...")
                     line_bot_api.set_rich_menu_image(rich_menu_id_1, 'image/png', image_data)
+                    logger.info("第一页图片上传成功")
                 else:
-                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page1']}")
+                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page1']}, 状态码: {response.status}")
 
             # 上传第二页图片
+            logger.info(f"正在下载第二页图片: {RICH_MENU_IMAGES['page2']}")
             async with session.get(RICH_MENU_IMAGES['page2']) as response:
                 if response.status == 200:
                     image_data = await response.read()
+                    logger.info("第二页图片下载成功，正在上传到LINE...")
                     line_bot_api.set_rich_menu_image(rich_menu_id_2, 'image/png', image_data)
+                    logger.info("第二页图片上传成功")
                 else:
-                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page2']}")
+                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page2']}, 状态码: {response.status}")
 
         # 设置默认Rich Menu
+        logger.info("正在设置默认Rich Menu...")
         line_bot_api.set_default_rich_menu(rich_menu_id_1)
+        logger.info("默认Rich Menu设置成功")
 
         # 保存Rich Menu ID到全局变量
         global RICH_MENU_IDS
@@ -1643,13 +1681,36 @@ async def create_rich_menus():
             'page2': rich_menu_id_2
         }
 
-        logger.info("Rich Menu创建成功")
+        logger.info("Rich Menu创建完成")
         return True
 
     except Exception as e:
         logger.error(f"创建Rich Menu时发生错误: {str(e)}")
         logger.error(traceback.format_exc())
         return False
+
+@bot.command(name='richmenu')
+@has_role(ADMIN_ROLE_ID)
+async def check_rich_menu(ctx):
+    """检查Rich Menu状态"""
+    try:
+        rich_menu_list = line_bot_api.get_rich_menu_list()
+        status = f"当前有 {len(rich_menu_list)} 个Rich Menu:\n"
+        for menu in rich_menu_list:
+            status += f"ID: {menu.rich_menu_id}\n名称: {menu.name}\n状态: {'默认' if menu.selected else '未选中'}\n\n"
+        
+        # 获取默认Rich Menu
+        try:
+            default_menu_id = line_bot_api.get_default_rich_menu()
+            status += f"\n默认Rich Menu ID: {default_menu_id}"
+        except:
+            status += "\n当前没有设置默认Rich Menu"
+            
+        await ctx.send(status)
+    except Exception as e:
+        await ctx.send(f"检查失败：{str(e)}")
+        logger.error(f"检查Rich Menu状态时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
 
 @line_handler.add(PostbackEvent)
 def handle_postback(event):
