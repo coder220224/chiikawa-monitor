@@ -10,4 +10,4 @@ aiohttp
 urllib3<2.0.0  # 保留这个约束,因为可能某些依赖需要较低版本
 brotli
 pytz
-line-bot-sdk
+line-bot-sdk>=3.17.1
