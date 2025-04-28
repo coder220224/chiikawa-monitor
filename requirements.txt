@@ -1,13 +1,12 @@
-discord.py
-pymongo[srv]
-certifi
-requests>=2.32.3,<3.0.0
-beautifulsoup4
-pandas
-openpyxl
-python-dotenv
-aiohttp
-urllib3<2.0.0  # 保留这个约束,因为可能某些依赖需要较低版本
-brotli
+flask==2.3.3
+pymongo[srv]>=4.3.3
 pytz
+apscheduler==3.10.4
+aiohttp>=3.8.1
+bson==0.5.10
+gunicorn==21.2.0
 line-bot-sdk>=3.17.1
+discord.py>=2.3.2
+python-dateutil>=2.8.2
+requests>=2.32.3,<3.0.0
+urllib3>=2.0.5,<3.0.0
