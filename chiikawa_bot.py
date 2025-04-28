@@ -21,9 +21,11 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     FlexSendMessage, BubbleContainer, BoxComponent,
     TextComponent, ButtonComponent, URIAction, CarouselContainer,
-    ImageComponent, ImageCarouselTemplate, ImageCarouselColumn, TemplateSendMessage
+    ImageComponent, ImageCarouselTemplate, ImageCarouselColumn, TemplateSendMessage,
+    RichMenu, RichMenuArea, RichMenuBounds, RichMenuSize, PostbackAction, PostbackEvent
 )
 import time
+import requests
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -44,6 +46,13 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 
 # 進程鎖文件路徑
 LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
+
+# Rich Menu 配置
+RICH_MENU_SIZE = RichMenuSize(width=2500, height=1686)
+RICH_MENU_IMAGES = {
+    'page1': 'https://ibb.co/bjRy2SdL',  # 替换为实际的图片URL
+    'page2': 'https://ibb.co/bjRy2SdL'   # 替换为实际的图片URL
+}
 
 def check_running():
     """檢查是否已有實例在運行"""
@@ -1547,6 +1556,147 @@ def handle_line_restock(event):
         except:
             pass
 
+async def create_rich_menus():
+    """创建分页式Rich Menu"""
+    try:
+        # 创建第一页Rich Menu
+        rich_menu_1 = RichMenu(
+            size=RICH_MENU_SIZE,
+            selected=True,
+            name="Page 1",
+            chat_bar_text="主选单 (1/2)",
+            areas=[
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=0, width=833, height=843),
+                    action=PostbackAction(label='上架', data='action=new')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=833, y=0, width=833, height=843),
+                    action=PostbackAction(label='下架', data='action=delisted')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=1666, y=0, width=834, height=843),
+                    action=PostbackAction(label='补货', data='action=restock')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=843, width=2500, height=843),
+                    action=PostbackAction(label='下一页', data='switch_to_page2')
+                )
+            ]
+        )
+
+        # 创建第二页Rich Menu
+        rich_menu_2 = RichMenu(
+            size=RICH_MENU_SIZE,
+            selected=False,
+            name="Page 2",
+            chat_bar_text="更多功能 (2/2)",
+            areas=[
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=0, width=833, height=843),
+                    action=PostbackAction(label='历史', data='action=history')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=833, y=0, width=833, height=843),
+                    action=PostbackAction(label='状态', data='action=status')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=1666, y=0, width=834, height=843),
+                    action=PostbackAction(label='帮助', data='action=help')
+                ),
+                RichMenuArea(
+                    bounds=RichMenuBounds(x=0, y=843, width=2500, height=843),
+                    action=PostbackAction(label='上一页', data='switch_to_page1')
+                )
+            ]
+        )
+
+        # 注册Rich Menu
+        rich_menu_id_1 = line_bot_api.create_rich_menu(rich_menu_1)
+        rich_menu_id_2 = line_bot_api.create_rich_menu(rich_menu_2)
+
+        # 从URL下载并上传Rich Menu图片
+        async with aiohttp.ClientSession() as session:
+            # 上传第一页图片
+            async with session.get(RICH_MENU_IMAGES['page1']) as response:
+                if response.status == 200:
+                    image_data = await response.read()
+                    line_bot_api.set_rich_menu_image(rich_menu_id_1, 'image/png', image_data)
+                else:
+                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page1']}")
+
+            # 上传第二页图片
+            async with session.get(RICH_MENU_IMAGES['page2']) as response:
+                if response.status == 200:
+                    image_data = await response.read()
+                    line_bot_api.set_rich_menu_image(rich_menu_id_2, 'image/png', image_data)
+                else:
+                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page2']}")
+
+        # 设置默认Rich Menu
+        line_bot_api.set_default_rich_menu(rich_menu_id_1)
+
+        # 保存Rich Menu ID到全局变量
+        global RICH_MENU_IDS
+        RICH_MENU_IDS = {
+            'page1': rich_menu_id_1,
+            'page2': rich_menu_id_2
+        }
+
+        logger.info("Rich Menu创建成功")
+        return True
+
+    except Exception as e:
+        logger.error(f"创建Rich Menu时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
+
+@line_handler.add(PostbackEvent)
+def handle_postback(event):
+    """处理Postback事件"""
+    try:
+        data = event.postback.data
+        user_id = event.source.user_id
+
+        if data == 'switch_to_page1':
+            line_bot_api.link_rich_menu_to_user(user_id, RICH_MENU_IDS['page1'])
+        elif data == 'switch_to_page2':
+            line_bot_api.link_rich_menu_to_user(user_id, RICH_MENU_IDS['page2'])
+        elif data.startswith('action='):
+            action = data.split('=')[1]
+            handle_menu_action(event, action)
+
+    except Exception as e:
+        logger.error(f"处理Postback事件时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+
+def handle_menu_action(event, action):
+    """处理菜单动作"""
+    try:
+        if action == 'new':
+            handle_line_new_products(event, 0)  # 显示今日上架商品
+        elif action == 'delisted':
+            handle_line_delisted_products(event, 0)  # 显示今日下架商品
+        elif action == 'restock':
+            handle_line_restock(event)
+        elif action == 'history':
+            handle_line_history(event, 7)  # 显示7天历史记录
+        elif action == 'status':
+            handle_line_status(event.reply_token)
+        elif action == 'help':
+            handle_line_help(event.reply_token)
+
+    except Exception as e:
+        logger.error(f"处理菜单动作时发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="处理请求时发生错误，请稍后再试。")
+            )
+        except:
+            pass
+
 # 運行 Bot
 if __name__ == "__main__":
     try:
@@ -1557,6 +1707,9 @@ if __name__ == "__main__":
             
         # 創建進程鎖
         create_lock()
+        
+        # 初始化Rich Menu
+        asyncio.run(create_rich_menus())
         
         # 運行 Bot
         bot.run(TOKEN)
