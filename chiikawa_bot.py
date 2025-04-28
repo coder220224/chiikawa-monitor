@@ -50,8 +50,8 @@ LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
 # Rich Menu 配置
 RICH_MENU_SIZE = RichMenuSize(width=2500, height=1686)
 RICH_MENU_IMAGES = {
-    'page1': 'https://ibb.co/bjRy2SdL',  # 替换为实际的图片URL
-    'page2': 'https://ibb.co/bjRy2SdL'   # 替换为实际的图片URL
+    'page1': 'https://i.ibb.co/Y4TKyzj8/chiikawa.png',  # 替换为实际的图片URL
+    'page2': 'https://i.ibb.co/Y4TKyzj8/chiikawa.png'   # 替换为实际的图片URL
 }
 
 def check_running():
