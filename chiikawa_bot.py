@@ -13,36 +13,40 @@ import socket
 import ssl
 import traceback
 import json
-import signal
 import pytz
-from linebot.v3 import WebhookHandler
-from linebot.v3.messaging import MessagingApi, MessagingApiBlob, Configuration
-from linebot.v3.webhooks import MessageEvent, TextMessageContent, PostbackEvent
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging.messages import (
+from linebot.v3 import (
+    WebhookHandler
+)
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    MessagingApiBlob,
+    RichMenu,
+    RichMenuArea,
+    RichMenuBounds,
+    RichMenuSize,
     TextMessage,
     FlexMessage,
     TemplateMessage,
     ImageCarouselTemplate,
-    ImageCarouselColumn
+    ImageCarouselColumn,
+    URIAction,
+    PostbackAction
 )
-from linebot.v3.messaging.messages.flex import (
+from linebot.v3.webhooks import (
+    MessageEvent,
+    TextMessageContent,
+    PostbackEvent
+)
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging.models import (
     BubbleContainer,
     BoxComponent,
     TextComponent,
     ButtonComponent,
     CarouselContainer,
     ImageComponent
-)
-from linebot.v3.messaging.actions import (
-    URIAction,
-    PostbackAction
-)
-from linebot.v3.messaging.models import (
-    RichMenu,
-    RichMenuArea,
-    RichMenuBounds,
-    RichMenuSize
 )
 import time
 import requests
