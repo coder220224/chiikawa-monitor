@@ -1580,8 +1580,6 @@ async def delete_all_rich_menus():
 async def create_rich_menus():
     """创建分页式Rich Menu"""
     try:
-        # 先删除现有的Rich Menu
-        await delete_all_rich_menus()
         
         logger.info("开始创建新的Rich Menu...")
         
