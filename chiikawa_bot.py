@@ -13,43 +13,17 @@ import socket
 import ssl
 import traceback
 import json
+import signal
 import pytz
-from linebot.v3 import (
-    WebhookHandler
-)
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    MessagingApiBlob,
-    RichMenu,
-    RichMenuArea,
-    RichMenuBounds,
-    RichMenuSize,
-    TextMessage,
-    FlexMessage,
-    TemplateMessage,
-    ImageCarouselTemplate,
-    ImageCarouselColumn,
-    URIAction,
-    PostbackAction
-)
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent,
-    PostbackEvent
-)
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging.models import (
-    BubbleContainer,
-    BoxComponent,
-    TextComponent,
-    ButtonComponent,
-    CarouselContainer,
-    ImageComponent
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    FlexSendMessage, BubbleContainer, BoxComponent,
+    TextComponent, ButtonComponent, URIAction, CarouselContainer,
+    ImageComponent, ImageCarouselTemplate, ImageCarouselColumn, TemplateSendMessage
 )
 import time
-import requests
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -70,16 +44,6 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 
 # 進程鎖文件路徑
 LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
-
-# Rich Menu 配置
-RICH_MENU_SIZE = RichMenuSize(width=2500, height=1686)
-RICH_MENU_IMAGES = {
-    'page1': 'https://raw.githubusercontent.com/coder220224/chiikawa-monitor/main/image/chiikawa.png',
-    'page2': 'https://raw.githubusercontent.com/coder220224/chiikawa-monitor/main/image/chiikawa.png'
-}
-
-# 全局变量用于存储Rich Menu IDs
-RICH_MENU_IDS = {}
 
 def check_running():
     """檢查是否已有實例在運行"""
@@ -210,10 +174,8 @@ bot = ProxyBot(command_prefix='!', intents=intents)
 monitor = ChiikawaMonitor()
 
 # 初始化 LINE Bot
-configuration = Configuration(access_token=os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', ''))
-line_bot_api = MessagingApi(configuration)
-blob_api = MessagingApiBlob(configuration)
-line_handler = WebhookHandler(os.environ.get('LINE_CHANNEL_SECRET', ''))
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+line_handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # 添加日誌記錄
 logging.basicConfig(
@@ -1044,7 +1006,7 @@ def handle_line_message(event):
                     if days_history <= 0 or days_history > 30:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextMessage(text="請指定 1-30 天的範圍")
+                            TextSendMessage(text="請指定 1-30 天的範圍")
                         )
                         return
                 except ValueError:
@@ -1062,7 +1024,7 @@ def handle_line_message(event):
                     if days_new < 0 or days_new > 7:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
                         )
                         return
                 except ValueError:
@@ -1080,7 +1042,7 @@ def handle_line_message(event):
                     if days_delisted < 0 or days_delisted > 7:
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextMessage(text="請指定 0-7 天的範圍（0表示今天）")
+                            TextSendMessage(text="請指定 0-7 天的範圍（0表示今天）")
                         )
                         return
                 except ValueError:
@@ -1120,7 +1082,7 @@ def handle_line_message(event):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="處理請求時發生錯誤，請稍後再試。")
+                TextSendMessage(text="處理請求時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1138,7 +1100,7 @@ def handle_line_new_products(event, days):
         if not new_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="指定天數內沒有新商品上架")
+                TextSendMessage(text="指定天數內沒有新商品上架")
             )
             return
     
@@ -1163,7 +1125,7 @@ def handle_line_new_products(event, days):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"{date_str} 上架商品 (共{total_count}件)"
-            messages.append(TextMessage(text=date_title))
+            messages.append(TextSendMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1200,7 +1162,7 @@ def handle_line_new_products(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="獲取上架商品時發生錯誤，請稍後再試。")
+                TextSendMessage(text="獲取上架商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1218,7 +1180,7 @@ def handle_line_delisted_products(event, days):
         if not delisted_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="指定天數內沒有商品下架")
+                TextSendMessage(text="指定天數內沒有商品下架")
             )
             return
     
@@ -1243,7 +1205,7 @@ def handle_line_delisted_products(event, days):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"{date_str} 下架商品 (共{total_count}件)"
-            messages.append(TextMessage(text=date_title))
+            messages.append(TextSendMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1280,7 +1242,7 @@ def handle_line_delisted_products(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="獲取下架商品時發生錯誤，請稍後再試。")
+                TextSendMessage(text="獲取下架商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
@@ -1309,7 +1271,7 @@ def handle_line_status(reply_token):
     
     line_bot_api.reply_message(
         reply_token,
-        FlexMessage(alt_text="服務狀態", contents=bubble)
+        FlexSendMessage(alt_text="服務狀態", contents=bubble)
     )
 
 def handle_line_history(event, days):
@@ -1317,7 +1279,7 @@ def handle_line_history(event, days):
     if days <= 0 or days > 30:
         line_bot_api.reply_message(
             event.reply_token,
-            TextMessage(text="請指定 1-30 天的範圍")
+            TextSendMessage(text="請指定 1-30 天的範圍")
         )
         return
     
@@ -1333,7 +1295,7 @@ def handle_line_history(event, days):
         if not history_records:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text=f"近 {days} 天沒有商品變更記錄")
+                TextSendMessage(text=f"近 {days} 天沒有商品變更記錄")
             )
             return
         
@@ -1361,7 +1323,7 @@ def handle_line_history(event, days):
             
             # 發送日期標題
             date_title = f"{date_str} 商品變更記錄 (上架: {new_count}件 | 下架: {del_count}件)"
-            messages.append(TextMessage(text=date_title))
+            messages.append(TextSendMessage(text=date_title))
             
             # 處理上架商品 (如果有的話)
             if new_count > 0:
@@ -1373,7 +1335,7 @@ def handle_line_history(event, days):
                 
                 # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
-                    messages.append(TextMessage(text=f"🆕 上架商品 ({new_count}件)"))
+                    messages.append(TextSendMessage(text=f"🆕 上架商品 ({new_count}件)"))
                 
                 for i in range(carousel_count):
                     start_idx = i * items_per_carousel
@@ -1395,7 +1357,7 @@ def handle_line_history(event, days):
                 
                 # 如果需要發送多個Image Carousel，先發送一個小標題
                 if carousel_count > 0:
-                    messages.append(TextMessage(text=f"❌ 下架商品 ({del_count}件)"))
+                    messages.append(TextSendMessage(text=f"❌ 下架商品 ({del_count}件)"))
                 
                 for i in range(carousel_count):
                     start_idx = i * items_per_carousel
@@ -1428,30 +1390,50 @@ def handle_line_history(event, days):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="獲取歷史記錄時發生錯誤，請稍後再試。")
+                TextSendMessage(text="獲取歷史記錄時發生錯誤，請稍後再試。")
             )
         except:
             pass
 
-def create_image_carousel(products, start_idx=0, max_columns=10):
-    """创建图片轮播消息"""
+def create_image_carousel(products):
+    """創建Image Carousel消息"""
+    # 確保不超過10個項目(LINE的限制)
+    if len(products) > 10:
+        products = products[:10]
+    
+    # 如果沒有商品，返回None
+    if not products:
+        return None
+    
     columns = []
-    for i in range(start_idx, min(start_idx + max_columns, len(products))):
-        product = products[i]
+    for product in products:
+        # 處理標籤文字，確保不超過Label的12字符限制
+        name = product['name']
+        if len(name) > 12:
+            label = name[:11] + "…"
+        else:
+            label = name
+        
+        # 獲取圖片URL，如果沒有則使用默認圖片
+        image_url = product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png')
+        
+        # 創建列
         column = ImageCarouselColumn(
-            image_url=product['image_url'],
+            image_url=image_url,
             action=URIAction(
-                label=f"{product['name'][:12]}...",
+                label=label,
                 uri=product['url']
             )
         )
         columns.append(column)
     
+    # 創建圖片輪播
     carousel_template = ImageCarouselTemplate(columns=columns)
-    message = TemplateMessage(
+    message = TemplateSendMessage(
         alt_text="商品列表",
         template=carousel_template
     )
+    
     return message
 
 def handle_line_help(reply_token):
@@ -1468,7 +1450,7 @@ def handle_line_help(reply_token):
     
     line_bot_api.reply_message(
         reply_token,
-        TextMessage(text=help_text)
+        TextSendMessage(text=help_text)
     )
 
 def handle_line_restock(event):
@@ -1480,7 +1462,7 @@ def handle_line_restock(event):
         if not resale_products:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="目前沒有即將補貨的商品")
+                TextSendMessage(text="目前沒有即將補貨的商品")
             )
             return
         
@@ -1523,7 +1505,7 @@ def handle_line_restock(event):
             
             # 發送日期標題 (每個日期只發一次)
             date_title = f"補貨日期: {date_display} (共{total_count}件)"
-            messages.append(TextMessage(text=date_title))
+            messages.append(TextSendMessage(text=date_title))
             
             # 每10個商品一組，使用Image Carousel顯示
             items_per_carousel = 10
@@ -1560,222 +1542,10 @@ def handle_line_restock(event):
         try:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextMessage(text="獲取補貨商品時發生錯誤，請稍後再試。")
+                TextSendMessage(text="獲取補貨商品時發生錯誤，請稍後再試。")
             )
         except:
             pass
-
-async def delete_all_rich_menus():
-    """删除所有现有的Rich Menu"""
-    try:
-        # 获取所有Rich Menu
-        rich_menu_list = line_bot_api.get_rich_menu_list()
-        
-        # 删除每个Rich Menu
-        for rich_menu in rich_menu_list:
-            line_bot_api.delete_rich_menu(rich_menu.rich_menu_id)
-            logger.info(f"已删除Rich Menu: {rich_menu.rich_menu_id}")
-        
-        logger.info("所有Rich Menu已删除")
-        return True
-    except Exception as e:
-        logger.error(f"删除Rich Menu时发生错误: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
-
-async def create_rich_menus():
-    """创建分页式Rich Menu"""
-    try:
-        logger.info("开始创建新的Rich Menu...")
-        
-        # 创建第一页Rich Menu
-        rich_menu_1 = RichMenu(
-            size=RICH_MENU_SIZE,
-            selected=True,
-            name="Page 1",
-            chat_bar_text="主选单 (1/2)",
-            areas=[
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=0, y=0, width=833, height=843),
-                    action=PostbackAction(label='上架', data='action=new')
-                ),
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=833, y=0, width=833, height=843),
-                    action=PostbackAction(label='下架', data='action=delisted')
-                ),
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=1666, y=0, width=834, height=843),
-                    action=PostbackAction(label='补货', data='action=restock')
-                ),
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=0, y=843, width=2500, height=843),
-                    action=PostbackAction(label='下一页', data='switch_to_page2')
-                )
-            ]
-        )
-
-        logger.info("正在注册第一页Rich Menu...")
-        rich_menu_id_1 = line_bot_api.create_rich_menu(rich_menu=rich_menu_1)
-        logger.info(f"第一页Rich Menu创建成功，ID: {rich_menu_id_1.rich_menu_id}")
-
-        # 从URL下载并上传Rich Menu图片
-        async with aiohttp.ClientSession() as session:
-            # 上传第一页图片
-            logger.info(f"正在下载第一页图片: {RICH_MENU_IMAGES['page1']}")
-            async with session.get(RICH_MENU_IMAGES['page1']) as response:
-                if response.status == 200:
-                    image_data = await response.read()
-                    logger.info("第一页图片下载成功，正在上传到LINE...")
-                    blob_api.set_rich_menu_image(
-                        rich_menu_id=rich_menu_id_1.rich_menu_id,
-                        body=image_data,
-                        _content_type='image/png'
-                    )
-                    logger.info("第一页图片上传成功")
-                else:
-                    raise Exception(f"下载图片失败: {RICH_MENU_IMAGES['page1']}, 状态码: {response.status}")
-
-        # 设置默认Rich Menu
-        logger.info("正在设置默认Rich Menu...")
-        line_bot_api.set_default_rich_menu(rich_menu_id=rich_menu_id_1.rich_menu_id)
-        logger.info("默认Rich Menu设置成功")
-
-        # 保存Rich Menu ID到全局变量
-        global RICH_MENU_IDS
-        RICH_MENU_IDS = {
-            'page1': rich_menu_id_1.rich_menu_id
-        }
-
-        logger.info("Rich Menu创建完成")
-        return True
-
-    except Exception as e:
-        logger.error(f"创建Rich Menu时发生错误: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
-@bot.command(name='richmenu')
-@has_role(ADMIN_ROLE_ID)
-async def check_rich_menu(ctx):
-    """检查Rich Menu状态"""
-    try:
-        rich_menu_list = line_bot_api.get_rich_menu_list()
-        status = f"当前有 {len(rich_menu_list)} 个Rich Menu:\n"
-        for menu in rich_menu_list:
-            status += f"ID: {menu.rich_menu_id}\n名称: {menu.name}\n状态: {'默认' if menu.selected else '未选中'}\n\n"
-        
-        # 获取默认Rich Menu
-        try:
-            default_menu_id = line_bot_api.get_default_rich_menu()
-            status += f"\n默认Rich Menu ID: {default_menu_id}"
-        except:
-            status += "\n当前没有设置默认Rich Menu"
-            
-        await ctx.send(status)
-    except Exception as e:
-        await ctx.send(f"检查失败：{str(e)}")
-        logger.error(f"检查Rich Menu状态时发生错误: {str(e)}")
-        logger.error(traceback.format_exc())
-
-@line_handler.add(PostbackEvent)
-def handle_postback(event):
-    """处理Postback事件"""
-    try:
-        data = event.postback.data
-        user_id = event.source.user_id
-
-        if data == 'switch_to_page1':
-            line_bot_api.link_rich_menu_to_user(user_id, RICH_MENU_IDS['page1'])
-        elif data == 'switch_to_page2':
-            line_bot_api.link_rich_menu_to_user(user_id, RICH_MENU_IDS['page2'])
-        elif data.startswith('action='):
-            action = data.split('=')[1]
-            handle_menu_action(event, action)
-
-    except Exception as e:
-        logger.error(f"处理Postback事件时发生错误: {str(e)}")
-        logger.error(traceback.format_exc())
-
-def handle_menu_action(event, action):
-    """处理菜单动作"""
-    try:
-        if action == 'new':
-            handle_line_new_products(event, 0)  # 显示今日上架商品
-        elif action == 'delisted':
-            handle_line_delisted_products(event, 0)  # 显示今日下架商品
-        elif action == 'restock':
-            handle_line_restock(event)
-        elif action == 'history':
-            handle_line_history(event, 7)  # 显示7天历史记录
-        elif action == 'status':
-            handle_line_status(event.reply_token)
-        elif action == 'help':
-            handle_line_help(event.reply_token)
-
-    except Exception as e:
-        logger.error(f"处理菜单动作时发生错误: {str(e)}")
-        logger.error(traceback.format_exc())
-        try:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextMessage(text="处理请求时发生错误，请稍后再试。")
-            )
-        except:
-            pass
-
-@bot.command(name='setdefault')
-@has_role(ADMIN_ROLE_ID)
-async def set_default_menu(ctx, menu_id: str = None):
-    """手动设置默认Rich Menu"""
-    try:
-        if not menu_id:
-            # 获取现有的Rich Menu列表
-            rich_menu_list = line_bot_api.get_rich_menu_list()
-            if not rich_menu_list:
-                await ctx.send("没有找到任何Rich Menu")
-                return
-                
-            # 默认使用第一个Rich Menu
-            menu_id = rich_menu_list[0].rich_menu_id
-            
-        # 设置默认Rich Menu
-        line_bot_api.set_default_rich_menu(menu_id)
-        await ctx.send(f"已将Rich Menu {menu_id} 设置为默认选单")
-        logger.info(f"已手动设置默认Rich Menu: {menu_id}")
-        
-    except Exception as e:
-        error_msg = f"设置默认Rich Menu失败：{str(e)}"
-        await ctx.send(error_msg)
-        logger.error(error_msg)
-        logger.error(traceback.format_exc())
-
-@bot.command(name='resetmenu')
-@has_role(ADMIN_ROLE_ID)
-async def reset_rich_menu(ctx):
-    """重置所有Rich Menu"""
-    try:
-        await ctx.send("开始重置Rich Menu...")
-        
-        # 重新创建Rich Menu
-        success = await create_rich_menus()
-        
-        if success:
-            await ctx.send("Rich Menu重置成功！")
-            
-            # 显示当前状态
-            rich_menu_list = line_bot_api.get_rich_menu_list()
-            status = f"当前有 {len(rich_menu_list)} 个Rich Menu:\n"
-            for menu in rich_menu_list:
-                status += f"ID: {menu.rich_menu_id}\n名称: {menu.name}\n状态: {'默认' if menu.selected else '未选中'}\n\n"
-            
-            await ctx.send(status)
-        else:
-            await ctx.send("Rich Menu重置失败，请查看日志获取详细信息")
-            
-    except Exception as e:
-        error_msg = f"重置Rich Menu失败：{str(e)}"
-        await ctx.send(error_msg)
-        logger.error(error_msg)
-        logger.error(traceback.format_exc())
 
 # 運行 Bot
 if __name__ == "__main__":
@@ -1788,9 +1558,6 @@ if __name__ == "__main__":
         # 創建進程鎖
         create_lock()
         
-        # 初始化Rich Menu
-        asyncio.run(create_rich_menus())
-        
         # 運行 Bot
         bot.run(TOKEN)
     except Exception as e:
@@ -1799,4 +1566,3 @@ if __name__ == "__main__":
     finally:
         # 確保在任何情況下都移除進程鎖
         remove_lock() 
-
