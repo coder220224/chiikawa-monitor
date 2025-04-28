@@ -50,8 +50,8 @@ LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
 # Rich Menu 配置
 RICH_MENU_SIZE = RichMenuSize(width=2500, height=1686)
 RICH_MENU_IMAGES = {
-    'page1': 'https://i.ibb.co/LDhqJLp6/chiikawa.png',  # 替换为实际的图片URL
-    'page2': 'https://i.ibb.co/LDhqJLp6/chiikawa.png'   # 替换为实际的图片URL
+    'page1': 'https://raw.githubusercontent.com/coder220224/chiikawa-monitor/main/image/chiikawa.png',
+    'page2': 'https://raw.githubusercontent.com/coder220224/chiikawa-monitor/main/image/chiikawa.png'
 }
 
 # 全局变量用于存储Rich Menu IDs
