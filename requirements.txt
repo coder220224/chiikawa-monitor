@@ -1,7 +1,7 @@
 discord.py
 pymongo[srv]
 certifi
-requests
+requests>=2.32.3,<3.0.0
 beautifulsoup4
 pandas
 openpyxl
