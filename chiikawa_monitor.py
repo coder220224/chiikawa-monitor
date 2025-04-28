@@ -478,7 +478,8 @@ class ChiikawaMonitor:
                             'resale_tags': resale_tags,
                             'next_resale_date': next_resale_date,
                             'last_updated': current_time,
-                            'detected_date': current_time
+                            'detected_date': current_time,
+                            'image_url': product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png')
                         }},
                         upsert=True
                     )
