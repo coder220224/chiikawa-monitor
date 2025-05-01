@@ -768,21 +768,26 @@ class ChiikawaMonitor:
                 logger.info("resale 集合不存在，無需清理")
                 return True
                 
-            current_date = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
+            # 使用台灣時間
+            current_date = datetime.now(TW_TIMEZONE)
+            # 取得今天的日期（去除時分秒）
+            today = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
             
-            # 查找過期的記錄數量
+            # 查找過期的記錄數量（只刪除今天之前的記錄）
             expired_count = self.resale.count_documents({
-                'next_resale_date': {'$lt': current_date}
+                'next_resale_date': {'$lt': today}
             })
             
             if expired_count > 0:
                 # 刪除過期記錄
                 result = self.resale.delete_many({
-                    'next_resale_date': {'$lt': current_date}
+                    'next_resale_date': {'$lt': today}
                 })
-                logger.info(f"已清理 {result.deleted_count} 條過期的補貨記錄，耗時：{time.time() - start_time:.2f}秒")
+                logger.info(f"已清理 {result.deleted_count} 條過期的補貨記錄（{today.strftime('%Y-%m-%d')} 之前），耗時：{time.time() - start_time:.2f}秒")
+                logger.info(f"清理時間: {current_date.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)")
             else:
-                logger.info("沒有發現過期的補貨記錄")
+                logger.info(f"沒有發現過期的補貨記錄（{today.strftime('%Y-%m-%d')} 之前）")
+                logger.info(f"檢查時間: {current_date.strftime('%Y-%m-%d %H:%M:%S')} (台灣時間)")
                 
             return True
         except Exception as e:
