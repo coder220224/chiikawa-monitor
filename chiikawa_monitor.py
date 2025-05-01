@@ -293,34 +293,48 @@ class ChiikawaMonitor:
             start_time = time.time()
             logger.info("开始更新商品数据...")
             
-            # 1. 获取new集合中的商品URL
-            new_products = list(self.new.find({}, {'url': 1, '_id': 0}))
-            new_urls = {p['url'] for p in new_products}
+            # 1. 获取 products 集合中现有的所有商品
+            existing_products = list(self.products.find({}, {'url': 1, 'name': 1, '_id': 0}))
+            existing_urls = {p['url'] for p in existing_products}
+            logger.info(f"products 集合中现有商品数: {len(existing_urls)}")
             
-            # 2. 如果new集合中有商品，检查并清理delisted和resale集合
-            if new_urls:
-                # 从下架集合中删除已重新上架的商品
-                delisted_result = self.delisted.delete_many({
-                    'url': {'$in': list(new_urls)}
-                })
-                if delisted_result.deleted_count > 0:
-                    logger.info(f"从下架集合中删除 {delisted_result.deleted_count} 个重新上架的商品")
-                
-                # 从补货集合中删除已重新上架的商品
-                resale_result = self.resale.delete_many({
-                    'url': {'$in': list(new_urls)}
-                })
-                if resale_result.deleted_count > 0:
-                    logger.info(f"从补货集合中删除 {resale_result.deleted_count} 个已上架的商品")
+            # 2. 当前获取的商品
+            current_urls = {p['url'] for p in products_data}
+            logger.info(f"当前获取的商品数: {len(current_urls)}")
             
-            # 3. 更新商品数据
-            current_time = datetime.now(TW_TIMEZONE)
+            # 3. 找出下架的商品（在数据库中存在但当前不存在）
+            delisted_urls = existing_urls - current_urls
+            logger.info(f"发现 {len(delisted_urls)} 个下架商品")
+            
+            # 4. 找出新商品（当前存在但数据库中不存在）
+            new_urls = current_urls - existing_urls
+            logger.info(f"发现 {len(new_urls)} 个新商品")
+            
+            # 5. 处理下架商品
+            for url in delisted_urls:
+                # 找到要下架的商品完整信息
+                delisted_product = next((p for p in existing_products if p['url'] == url), None)
+                if delisted_product:
+                    logger.info(f"处理下架商品: {delisted_product['name']}")
+                    # 从 products 集合中删除
+                    self.products.delete_one({'url': url})
+                    # 记录到 delisted 集合
+                    self.record_history(delisted_product, 'delisted')
+            
+            # 6. 处理新商品和更新现有商品
             operations = []
             for product in products_data:
                 if 'url' not in product:
                     continue
                 
-                product['last_seen'] = current_time
+                # 如果是新商品
+                if product['url'] in new_urls:
+                    logger.info(f"处理新商品: {product.get('name', 'Unknown')}")
+                    # 记录到 new 集合
+                    self.record_history(product, 'new')
+                
+                # 更新或插入到 products 集合
+                product['last_seen'] = datetime.now(TW_TIMEZONE)
                 operations.append(
                     pymongo.UpdateOne(
                         {'url': product['url']},
@@ -332,8 +346,7 @@ class ChiikawaMonitor:
             # 执行批量更新
             if operations:
                 result = self.products.bulk_write(operations, ordered=False)
-                logger.info(f"商品数据更新完成：{len(operations)} 个商品")
-                logger.info(f"更新结果：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
+                logger.info(f"商品数据更新完成：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
             
             # 同步更新history集合中的商品库存状态
             self.sync_product_availability(products_data)
