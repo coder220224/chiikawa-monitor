@@ -45,6 +45,9 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 # 進程鎖文件路徑
 LOCK_FILE = os.path.join(WORK_DIR, 'bot.lock')
 
+class FetchProductError(Exception):
+    pass
+
 def check_running():
     """檢查是否已有實例在運行"""
     try:
@@ -192,11 +195,10 @@ async def auto_monitor():
     if monitoring_channel_id is not None:
         channel = bot.get_channel(monitoring_channel_id)
         if channel:
-            # 構造一個假的 context 物件以相容 check_updates
             class DummyCtx:
                 def __init__(self, channel):
                     self.channel = channel
-            await check_updates(DummyCtx(channel))
+            await check_updates_with_retry(DummyCtx(channel))
 
 @auto_monitor.before_loop
 async def before_auto_monitor():
@@ -225,29 +227,26 @@ async def check_updates(ctx):
             await channel.send(f"錯誤：{error_msg}")
             return
         
-        # 獲取新的商品資料
+        # 獲取新的商品資料（加上失敗時 raise FetchProductError）
         try:
             logger.info("開始獲取新商品數據...")
             start_time = time.time()
             new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
             logger.info(f"獲取新商品數據完成，耗時：{time.time() - start_time:.2f}秒")
-            
             if not new_products_data:
                 error_msg = "獲取新商品數據失敗：返回空列表"
                 logger.error(error_msg)
                 logger.error("請檢查 fetch_products 函數的執行情況")
                 await channel.send(f"錯誤：{error_msg}")
-                return
-                
+                raise FetchProductError(error_msg)
             new_products = {p['url']: p for p in new_products_data}
             logger.info(f"成功獲取新商品數據：{len(new_products)} 個")
-            
         except Exception as e:
             error_msg = f"獲取新商品數據時發生錯誤：{str(e)}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             await channel.send(f"錯誤：{error_msg}")
-            return
+            raise FetchProductError(error_msg)
             
         # 檢查是否是第一次執行（資料庫為空）
         is_first_run = len(old_products) == 0
@@ -385,6 +384,26 @@ async def check_updates(ctx):
         logger.error(traceback.format_exc())
         await channel.send(f"錯誤：{error_msg}")
 
+async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
+    for attempt in range(1, max_retries + 1):
+        try:
+            await check_updates(ctx)
+            break  # 成功就跳出
+        except FetchProductError as e:
+            logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
+            if attempt < max_retries:
+                await ctx.channel.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
+                await asyncio.sleep(retry_delay)
+            else:
+                await ctx.channel.send(f"獲取商品數據多次失敗，請稍後再試。")
+                break
+        except Exception as e:
+            # 其他錯誤不重試
+            logger.error(f"check_updates 其他錯誤：{str(e)}")
+            logger.error(traceback.format_exc())
+            await ctx.channel.send(f"檢查過程發生未預期錯誤：{str(e)}")
+            break
+
 @bot.event
 async def on_ready():
     logging.info(f'Bot logged in as {bot.user.name}')
@@ -414,6 +433,8 @@ async def start_monitoring(ctx):
         await ctx.send("已啟動自動監控，每10分鐘檢查一次商品更新。")
     else:
         await ctx.send("自動監控已在運行中。")
+    # 立即執行一次
+    await check_updates_with_retry(ctx)
 
 @bot.command(name='stop')
 @has_role(ADMIN_ROLE_ID)
