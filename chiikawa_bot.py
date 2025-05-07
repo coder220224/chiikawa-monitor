@@ -184,6 +184,24 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# ====== 自動監控任務相關 ======
+monitoring_channel_id = None  # 記錄啟動監控的頻道ID
+
+@tasks.loop(minutes=10)
+async def auto_monitor():
+    if monitoring_channel_id is not None:
+        channel = bot.get_channel(monitoring_channel_id)
+        if channel:
+            # 構造一個假的 context 物件以相容 check_updates
+            class DummyCtx:
+                def __init__(self, channel):
+                    self.channel = channel
+            await check_updates(DummyCtx(channel))
+
+@auto_monitor.before_loop
+async def before_auto_monitor():
+    await bot.wait_until_ready()
+
 async def check_updates(ctx):
     """檢查商品更新"""
     try:
@@ -388,14 +406,26 @@ ADMIN_ROLE_ID = 1353266568875737128 # 請替換為實際的身分組 ID
 @bot.command(name='start')
 @has_role(ADMIN_ROLE_ID)
 async def start_monitoring(ctx):
-    """執行一次商品更新檢查"""
-    try:
-        await ctx.send("開始檢查商品更新...")
-        await check_updates(ctx)
-        await ctx.send("檢查完成！")
-    except Exception as e:
-        await ctx.send(f"執行失敗：{str(e)}")
-        logger.error(f"執行失敗：{str(e)}")
+    """啟動自動商品監控，每10分鐘檢查一次"""
+    global monitoring_channel_id
+    monitoring_channel_id = ctx.channel.id
+    if not auto_monitor.is_running():
+        auto_monitor.start()
+        await ctx.send("已啟動自動監控，每10分鐘檢查一次商品更新。")
+    else:
+        await ctx.send("自動監控已在運行中。")
+
+@bot.command(name='stop')
+@has_role(ADMIN_ROLE_ID)
+async def stop_monitoring(ctx):
+    """停止自動商品監控"""
+    global monitoring_channel_id
+    if auto_monitor.is_running():
+        auto_monitor.cancel()
+        monitoring_channel_id = None
+        await ctx.send("已停止自動監控。")
+    else:
+        await ctx.send("自動監控目前未在運行。")
 
 @bot.command(name='上架')
 async def new_listings(ctx, days: int = 0):
@@ -910,7 +940,8 @@ async def show_commands(ctx):
         embed.add_field(
             name="管理員指令",
             value=(
-                "🔄 `!start` - 執行一次商品更新檢查\n"
+                "🔄 `!start` - 啟動自動商品監控（每10分鐘自動檢查）\n"
+                "⏹️ `!stop` - 停止自動商品監控\n"
                 "🔍 `!檢查` - 檢查商品數量\n"
                 "💾 `!資料庫` - 檢查資料庫狀態"
             ),
