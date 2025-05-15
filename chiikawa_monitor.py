@@ -341,10 +341,7 @@ class ChiikawaMonitor:
             # 处理 RE 标签的商品
             self.process_resale_items(products_data)
             
-            # 清理过期的 resale 记录
-            self.clean_expired_resale_records()
-            
-            # 清理过旧的数据记录
+            # 清理過舊的數據記錄
             self.clean_old_records()
             
             logger.info(f"所有更新操作完成，总耗时：{time.time() - start_time:.2f}秒")
@@ -766,40 +763,6 @@ class ChiikawaMonitor:
             logger.error(traceback.format_exc())
             return None
 
-    def clean_expired_resale_records(self):
-        """清理已過期的補貨記錄"""
-        try:
-            start_time = time.time()
-            logger.info("開始清理過期補貨記錄...")
-            
-            # 確保集合存在
-            collections = self.db.list_collection_names()
-            if 'resale' not in collections:
-                logger.info("resale 集合不存在，無需清理")
-                return True
-                
-            current_date = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
-            
-            # 查找過期的記錄數量
-            expired_count = self.resale.count_documents({
-                'next_resale_date': {'$lt': current_date}
-            })
-            
-            if expired_count > 0:
-                # 刪除過期記錄
-                result = self.resale.delete_many({
-                    'next_resale_date': {'$lt': current_date}
-                })
-                logger.info(f"已清理 {result.deleted_count} 條過期的補貨記錄，耗時：{time.time() - start_time:.2f}秒")
-            else:
-                logger.info("沒有發現過期的補貨記錄")
-                
-            return True
-        except Exception as e:
-            logger.error(f"清理過期補貨記錄時發生錯誤: {str(e)}")
-            logger.error(traceback.format_exc())
-            return False
-            
     def clean_old_records(self):
         """清理過舊的數據記錄"""
         try:
