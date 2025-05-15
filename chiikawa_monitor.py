@@ -554,11 +554,14 @@ class ChiikawaMonitor:
         """記錄商品歷史"""
         try:
             today = datetime.now(TW_TIMEZONE).replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # 檢查今天是否已經記錄過這個商品
             exists = self.history.find_one({
                 'url': product['url'],
                 'type': type_,
                 'date': {'$gte': today}
             })
+            
             if exists:
                 logger.info(f"已存在同一天同 type 同 url 的歷史紀錄，不重複寫入: {product['name']}")
                 return False
@@ -574,61 +577,52 @@ class ChiikawaMonitor:
                 'time': current_time
             }
             
-            # 添加圖片URL（如果有）
+            # 添加圖片URL
             if 'image_url' in product:
                 history_data['image_url'] = product['image_url']
             
-            # 如果是下架商品，但沒有圖片URL，嘗試從資料庫獲取
-            if type_ == 'delisted' and 'image_url' not in history_data:
-                try:
-                    # 從資料庫中搜尋該商品
-                    existing_product = self.products.find_one({'url': product['url']})
-                    if existing_product and 'image_url' in existing_product:
-                        history_data['image_url'] = existing_product['image_url']
-                        logger.info(f"為下架商品 {product['name']} 從資料庫中恢復圖片URL")
-                    else:
-                        # 如果資料庫中沒有，使用默認圖片
-                        history_data['image_url'] = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
-                except Exception as e:
-                    logger.error(f"嘗試獲取下架商品圖片URL時出錯: {str(e)}")
-                    # 使用默認圖片
-                    history_data['image_url'] = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
-            
-            # 向原有的 history 集合寫入數據（保持向後兼容性）
-            self.history.insert_one(history_data)
-            
-            # 根據類型分別寫入到對應的集合
+            # 如果是新上架商品
             if type_ == 'new':
-                # 如果是新上架商品，先检查并删除下架和补货集合中的记录
-                delisted_result = self.delisted.delete_many({'url': product['url']})
-                if delisted_result.deleted_count > 0:
-                    logger.info(f"商品重新上架，从下架集合中删除: {product['name']}")
-                    
-                resale_result = self.resale.delete_many({'url': product['url']})
-                if resale_result.deleted_count > 0:
-                    logger.info(f"商品已上架，从补货集合中删除: {product['name']}")
+                # 檢查商品是否之前存在於資料庫
+                existing_product = self.products.find_one({'url': product['url']})
                 
-                # 附加更多信息到新上架記錄
+                # 檢查商品是否之前下架
+                was_delisted = self.delisted.find_one({'url': product['url']})
+                
+                if was_delisted:
+                    logger.info(f"商品重新上架: {product['name']}")
+                    # 從下架集合中移除
+                    self.delisted.delete_many({'url': product['url']})
+                
+                # 不管商品是新增還是重新上架，都添加到新上架集合
                 new_data = history_data.copy()
-                # 添加額外的字段
                 if isinstance(product, dict):
                     new_data.update({
                         'price': product.get('price', 0),
                         'available': product.get('available', False),
-                        'tags': product.get('tags', [])
+                        'tags': product.get('tags', []),
+                        'is_restock': bool(was_delisted)  # 標記是否為重新上架
                     })
+                
                 # 寫入到新上架集合
                 self.new.insert_one(new_data)
-                logger.info(f"商品已添加到新上架集合: {product['name']}")
+                logger.info(f"商品已添加到新上架集合: {product['name']} ({'重新上架' if was_delisted else '新商品'})")
+                
+                # 同時也要寫入到歷史記錄
+                self.history.insert_one(history_data)
                 
             elif type_ == 'delisted':
                 # 寫入到下架集合
                 self.delisted.insert_one(history_data)
+                # 同時也要寫入到歷史記錄
+                self.history.insert_one(history_data)
                 logger.info(f"商品已添加到下架集合: {product['name']}")
             
             return True
+            
         except Exception as e:
             logger.error(f"記錄歷史時發生錯誤：{str(e)}")
+            logger.error(traceback.format_exc())
             return False
 
     def get_today_history(self, type_):
