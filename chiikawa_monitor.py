@@ -408,35 +408,31 @@ class ChiikawaMonitor:
         """處理具有 RE 標籤的商品，並更新 resale 集合"""
         try:
             start_time = time.time()
-            logger.info("开始处理补货商品...")
+            logger.info("開始處理補貨商品...")
             
             # 计数器
             resale_tags_count = 0
             
             # 获取当前时间
             current_time = datetime.now(TW_TIMEZONE)
+            current_date = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            logger.info(f"目前時間: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            logger.info(f"比較用的日期: {current_date.strftime('%Y-%m-%d %H:%M:%S %Z')}")
             
             # 批量操作列表
             bulk_operations = []
             
             # 遍历所有商品
-            logger.info(f"开始处理 {len(products_data)} 个商品的标签")
             for product in products_data:
                 if 'tags' not in product or not product['tags']:
                     continue
                     
-                # 调试日志：输出商品名称和标签
-                logger.info(f"处理商品: {product.get('name', 'Unknown')}")
-                logger.info(f"商品标签: {product['tags']}")
-                
                 # 只查找 RE2025 开头的标签
                 resale_tags = [tag for tag in product['tags'] 
                              if tag.startswith('RE2025') and len(tag) >= 10]
                 
                 if not resale_tags:
                     continue
-                
-                logger.info(f"发现 RE2025 标签: {resale_tags}")
                 
                 # 提取補貨日期
                 valid_resale_dates = []
@@ -446,13 +442,17 @@ class ChiikawaMonitor:
                         year = int(date_str[:4])
                         month = int(date_str[4:6])
                         day = int(date_str[6:8])
-                        resale_date = datetime(year, month, day).replace(tzinfo=TW_TIMEZONE)
+                        resale_date = datetime(year, month, day, tzinfo=TW_TIMEZONE)
                         
-                        # 修改：將當天的日期也納入考慮
-                        current_date = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                        logger.info(f"處理商品 '{product['name']}' 的標籤 '{tag}':")
+                        logger.info(f"- 解析出的日期: {resale_date.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                        logger.info(f"- 比較結果: {resale_date >= current_date}")
+                        
                         if resale_date >= current_date:
                             valid_resale_dates.append(resale_date)
-                            logger.info(f"有效的補貨日期: {resale_date}")
+                            logger.info("  => 此日期有效，已加入清單")
+                        else:
+                            logger.info("  => 此日期已過期，略過")
                             
                     except Exception as e:
                         logger.error(f"解析 RE 標籤日期失敗: {tag}, 錯誤: {str(e)}")
@@ -463,6 +463,11 @@ class ChiikawaMonitor:
                 # 获取最近的补货日期
                 next_resale_date = min(valid_resale_dates)
                 resale_tags_count += 1
+                
+                # 記錄找到的補貨商品資訊
+                logger.info(f"找到補貨商品: {product['name']}")
+                logger.info(f"補貨標籤: {resale_tags}")
+                logger.info(f"下次補貨日期: {next_resale_date.strftime('%Y-%m-%d')}")
                 
                 # 准备更新操作
                 bulk_operations.append(
@@ -485,15 +490,15 @@ class ChiikawaMonitor:
                 
                 if len(bulk_operations) >= 500:  # 每500个操作执行一次批量更新
                     result = self.resale.bulk_write(bulk_operations, ordered=False)
-                    logger.info(f"批量更新补货商品：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
+                    logger.info(f"批量更新補貨商品：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
                     bulk_operations = []
             
             # 执行剩余的批量操作
             if bulk_operations:
                 result = self.resale.bulk_write(bulk_operations, ordered=False)
-                logger.info(f"批量更新补货商品：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
+                logger.info(f"批量更新補貨商品：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
             
-            logger.info(f"RE 标签处理完成：发现 {resale_tags_count} 个补货商品，耗时：{time.time() - start_time:.2f}秒")
+            logger.info(f"RE 標籤處理完成：發現 {resale_tags_count} 個補貨商品，耗時：{time.time() - start_time:.2f}秒")
             return True
             
         except Exception as e:
