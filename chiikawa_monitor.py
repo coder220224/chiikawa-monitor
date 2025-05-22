@@ -1050,7 +1050,7 @@ class ChiikawaMonitor:
         """清理指定集合中的重複記錄，只保留每個 URL 最新的一筆記錄
         
         Args:
-            collection_name: 要清理的集合名稱 ('new', 'delisted', 'resale')
+            collection_name: 要清理的集合名稱 ('new', 'delisted', 'resale', 'history')
             
         Returns:
             tuple: (刪除的記錄數, 保留的記錄數)
@@ -1058,36 +1058,72 @@ class ChiikawaMonitor:
         try:
             # 獲取集合引用
             collection = getattr(self, collection_name)
-            if not collection:
+            if collection is None:  # 修改判斷方式
                 logger.error(f"找不到集合：{collection_name}")
                 return (0, 0)
                 
             # 獲取所有記錄並按 URL 分組
-            all_records = list(collection.find().sort('date', -1))  # 按日期降序排序
-            url_groups = {}
-            
-            # 將記錄按 URL 分組
-            for record in all_records:
-                url = record['url']
-                if url not in url_groups:
-                    url_groups[url] = []
-                url_groups[url].append(record)
-            
-            # 統計數據
-            total_records = len(all_records)
-            records_to_keep = []
-            records_to_delete = []
-            
-            # 對每個 URL 的記錄進行處理
-            for url, records in url_groups.items():
-                if len(records) > 1:
-                    # 保留最新的記錄，其餘的刪除
-                    records_to_keep.append(records[0]['_id'])  # 第一條是最新的（因為已經排序）
-                    for record in records[1:]:
-                        records_to_delete.append(record['_id'])
-                else:
-                    # 只有一條記錄，保留
-                    records_to_keep.append(records[0]['_id'])
+            # 如果是 history 集合，需要考慮 type 欄位
+            if collection_name == 'history':
+                # 按 URL 和 type 分組
+                pipeline = [
+                    {
+                        '$sort': {'date': -1}  # 按日期降序排序
+                    },
+                    {
+                        '$group': {
+                            '_id': {
+                                'url': '$url',
+                                'type': '$type'
+                            },
+                            'docs': {
+                                '$push': {
+                                    '_id': '$_id',
+                                    'date': '$date'
+                                }
+                            },
+                            'count': {'$sum': 1}
+                        }
+                    }
+                ]
+                
+                groups = list(collection.aggregate(pipeline))
+                total_records = sum(group['count'] for group in groups)
+                records_to_keep = []
+                records_to_delete = []
+                
+                for group in groups:
+                    docs = group['docs']
+                    if len(docs) > 1:
+                        # 保留最新的記錄
+                        records_to_keep.append(docs[0]['_id'])
+                        # 其餘的刪除
+                        for doc in docs[1:]:
+                            records_to_delete.append(doc['_id'])
+                    else:
+                        records_to_keep.append(docs[0]['_id'])
+            else:
+                # 原有的按 URL 分組邏輯
+                all_records = list(collection.find().sort('date', -1))
+                total_records = len(all_records)
+                url_groups = {}
+                
+                for record in all_records:
+                    url = record['url']
+                    if url not in url_groups:
+                        url_groups[url] = []
+                    url_groups[url].append(record)
+                
+                records_to_keep = []
+                records_to_delete = []
+                
+                for url, records in url_groups.items():
+                    if len(records) > 1:
+                        records_to_keep.append(records[0]['_id'])
+                        for record in records[1:]:
+                            records_to_delete.append(record['_id'])
+                    else:
+                        records_to_keep.append(records[0]['_id'])
             
             # 刪除重複記錄
             if records_to_delete:
