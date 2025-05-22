@@ -122,166 +122,197 @@ class ChiikawaMonitor:
             logger.error(f"更新 Excel 時發生錯誤：{str(e)}")
             return False
 
-    def fetch_products(self):
-        """獲取所有商品信息"""
-        try:
-            logger.info("\n=== 開始獲取商品數據 ===")
-            logger.info(f"基礎 URL: {self.base_url}")
-            
-            # 測試基本連接
+    def fetch_products(self, max_retries=3, retry_delay=5):
+        """獲取所有商品信息，失敗時會重試"""
+        for attempt in range(max_retries):
             try:
-                logger.info("\n1. 測試基礎連接...")
-                test_response = self.session.get(self.base_url, timeout=30)
-                logger.info(f"基礎連接狀態碼: {test_response.status_code}")
+                logger.info(f"\n=== 開始獲取商品數據 (第 {attempt + 1} 次嘗試) ===")
+                logger.info(f"基礎 URL: {self.base_url}")
                 
-                if test_response.status_code != 200:
-                    logger.error(f"警告：基礎連接返回非 200 狀態碼")
-                    return []
-                    
-            except requests.exceptions.RequestException as e:
-                logger.error(f"基礎連接測試失敗: {str(e)}")
-                logger.error(traceback.format_exc())
-                return []
-            
-            # 測試 API 端點
-            logger.info("\n2. 測試商品 API...")
-            api_url = f"{self.base_url}/zh-hant/products.json"
-            logger.info(f"API URL: {api_url}")
-            
-            try:
-                logger.info("發送 API 請求...")
-                api_response = self.session.get(
-                    api_url, 
-                    params={'page': 1, 'limit': 1}, 
-                    timeout=30
-                )
-                logger.info(f"API 響應狀態碼: {api_response.status_code}")
-                
-                if api_response.status_code == 200:
-                    try:
-                        # requests 會自動處理解壓縮
-                        data = api_response.json()
-                        logger.info("成功解析 JSON 響應")
-                        logger.info(f"響應數據預覽: {str(data)[:200]}")
-                        
-                        if 'products' not in data:
-                            logger.error("錯誤：響應中沒有 products 字段")
-                            return []
-                            
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON 解析失敗: {str(e)}")
-                        logger.error(f"原始響應內容: {api_response.text[:200]}")
-                        return []
-                else:
-                    logger.error(f"API 請求失敗，狀態碼: {api_response.status_code}")
-                    return []
-                    
-            except requests.exceptions.RequestException as e:
-                logger.error(f"API 請求失敗: {str(e)}")
-                logger.error(traceback.format_exc())
-                return []
-                
-            # 開始獲取所有商品
-            logger.info("\n3. 開始獲取完整商品列表...")
-            total_products = 0
-            page = 1
-            new_products_data = []
-            seen_handles = set()
-            
-            while True:
+                # 測試基本連接
                 try:
-                    logger.info(f"\n獲取第 {page} 頁...")
-                    response = self.session.get(
-                        api_url,
-                        params={'page': page, 'limit': 250},
+                    logger.info("\n1. 測試基礎連接...")
+                    test_response = self.session.get(self.base_url, timeout=30)
+                    logger.info(f"基礎連接狀態碼: {test_response.status_code}")
+                    
+                    if test_response.status_code != 200:
+                        logger.error(f"警告：基礎連接返回非 200 狀態碼")
+                        if attempt < max_retries - 1:
+                            logger.info(f"等待 {retry_delay} 秒後重試...")
+                            time.sleep(retry_delay)
+                            continue
+                        return []
+                        
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"基礎連接測試失敗: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待 {retry_delay} 秒後重試...")
+                        time.sleep(retry_delay)
+                        continue
+                    return []
+                
+                # 測試 API 端點
+                logger.info("\n2. 測試商品 API...")
+                api_url = f"{self.base_url}/zh-hant/products.json"
+                logger.info(f"API URL: {api_url}")
+                
+                try:
+                    logger.info("發送 API 請求...")
+                    api_response = self.session.get(
+                        api_url, 
+                        params={'page': 1, 'limit': 1}, 
                         timeout=30
                     )
+                    logger.info(f"API 響應狀態碼: {api_response.status_code}")
                     
-                    if response.status_code != 200:
-                        logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
-                        break
-                        
-                    try:
-                        data = response.json()
-                    except json.JSONDecodeError as e:
-                        logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
-                        break
-                        
-                    if not isinstance(data, dict) or 'products' not in data:
-                        logger.error(f"第 {page} 頁數據格式錯誤")
-                        break
-                        
-                    products = data['products']
-                    if not products:
-                        logger.info("沒有更多商品")
-                        break
-                        
-                    page_count = 0
-                    for product in products:
+                    if api_response.status_code == 200:
                         try:
-                            handle = product.get('handle', '')
-                            if not handle or handle in seen_handles:
+                            data = api_response.json()
+                            logger.info("成功解析 JSON 響應")
+                            logger.info(f"響應數據預覽: {str(data)[:200]}")
+                            
+                            if 'products' not in data:
+                                logger.error("錯誤：響應中沒有 products 字段")
+                                if attempt < max_retries - 1:
+                                    logger.info(f"等待 {retry_delay} 秒後重試...")
+                                    time.sleep(retry_delay)
+                                    continue
+                                return []
+                                
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON 解析失敗: {str(e)}")
+                            logger.error(f"原始響應內容: {api_response.text[:200]}")
+                            if attempt < max_retries - 1:
+                                logger.info(f"等待 {retry_delay} 秒後重試...")
+                                time.sleep(retry_delay)
+                                continue
+                            return []
+                    else:
+                        logger.error(f"API 請求失敗，狀態碼: {api_response.status_code}")
+                        if attempt < max_retries - 1:
+                            logger.info(f"等待 {retry_delay} 秒後重試...")
+                            time.sleep(retry_delay)
+                            continue
+                        return []
+                        
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"API 請求失敗: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待 {retry_delay} 秒後重試...")
+                        time.sleep(retry_delay)
+                        continue
+                    return []
+
+                # 開始獲取所有商品
+                logger.info("\n3. 開始獲取完整商品列表...")
+                total_products = 0
+                page = 1
+                new_products_data = []
+                seen_handles = set()
+                
+                while True:
+                    try:
+                        logger.info(f"\n獲取第 {page} 頁...")
+                        response = self.session.get(
+                            api_url,
+                            params={'page': page, 'limit': 250},
+                            timeout=30
+                        )
+                        
+                        if response.status_code != 200:
+                            logger.error(f"獲取第 {page} 頁失敗，狀態碼: {response.status_code}")
+                            break
+                            
+                        try:
+                            data = response.json()
+                        except json.JSONDecodeError as e:
+                            logger.error(f"解析第 {page} 頁 JSON 失敗: {str(e)}")
+                            break
+                            
+                        if not isinstance(data, dict) or 'products' not in data:
+                            logger.error(f"第 {page} 頁數據格式錯誤")
+                            break
+                            
+                        products = data['products']
+                        if not products:
+                            logger.info("沒有更多商品")
+                            break
+                            
+                        page_count = 0
+                        for product in products:
+                            try:
+                                handle = product.get('handle', '')
+                                if not handle or handle in seen_handles:
+                                    continue
+                                    
+                                seen_handles.add(handle)
+                                title = product.get('title', '')
+                                variants = product.get('variants', [])
+                                
+                                price = 0
+                                available = False
+                                if variants:
+                                    variant = variants[0]
+                                    price = int(float(variant.get('price', 0)))
+                                    available = variant.get('available', False)
+                                
+                                # 獲取商品圖片URL
+                                image_url = None
+                                if 'images' in product and product['images'] and len(product['images']) > 0:
+                                    first_image = product['images'][0]
+                                    if isinstance(first_image, dict) and 'src' in first_image:
+                                        image_url = first_image['src']
+                                
+                                # 如果沒有圖片，使用默認圖片
+                                if not image_url:
+                                    image_url = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
+                                    
+                                product_url = f"{self.base_url}/zh-hant/products/{handle}"
+                                new_products_data.append({
+                                    'url': product_url,
+                                    'name': title,
+                                    'price': price,
+                                    'available': available,
+                                    'tags': product.get('tags', []),
+                                    'image_url': image_url,  # 存儲圖片URL
+                                    'last_seen': datetime.now(TW_TIMEZONE)
+                                })
+                                
+                                total_products += 1
+                                page_count += 1
+                                
+                            except Exception as e:
+                                logger.error(f"處理商品時出錯: {str(e)}")
                                 continue
                                 
-                            seen_handles.add(handle)
-                            title = product.get('title', '')
-                            variants = product.get('variants', [])
+                        logger.info(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
+                        if page_count == 0:
+                            break
                             
-                            price = 0
-                            available = False
-                            if variants:
-                                variant = variants[0]
-                                price = int(float(variant.get('price', 0)))
-                                available = variant.get('available', False)
-                            
-                            # 獲取商品圖片URL
-                            image_url = None
-                            if 'images' in product and product['images'] and len(product['images']) > 0:
-                                first_image = product['images'][0]
-                                if isinstance(first_image, dict) and 'src' in first_image:
-                                    image_url = first_image['src']
-                            
-                            # 如果沒有圖片，使用默認圖片
-                            if not image_url:
-                                image_url = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
-                                
-                            product_url = f"{self.base_url}/zh-hant/products/{handle}"
-                            new_products_data.append({
-                                'url': product_url,
-                                'name': title,
-                                'price': price,
-                                'available': available,
-                                'tags': product.get('tags', []),
-                                'image_url': image_url,  # 存儲圖片URL
-                                'last_seen': datetime.now(TW_TIMEZONE)
-                            })
-                            
-                            total_products += 1
-                            page_count += 1
-                            
-                        except Exception as e:
-                            logger.error(f"處理商品時出錯: {str(e)}")
-                            continue
-                            
-                    logger.info(f"第 {page} 頁處理完成，獲取 {page_count} 個商品")
-                    if page_count == 0:
-                        break
+                        page += 1
+                        time.sleep(1)
                         
-                    page += 1
-                    time.sleep(1)
+                    except Exception as e:
+                        logger.error(f"處理第 {page} 頁時出錯: {str(e)}")
+                        break
                     
-                except Exception as e:
-                    logger.error(f"處理第 {page} 頁時出錯: {str(e)}")
-                    break
+                logger.info(f"\n=== 商品獲取完成 ===")
+                logger.info(f"總共獲取: {total_products} 個商品")
+                return new_products_data
                 
-            logger.info(f"\n=== 商品獲取完成 ===")
-            logger.info(f"總共獲取: {total_products} 個商品")
-            return new_products_data
-            
-        except Exception as e:
-            logger.error(f"商品獲取過程中發生錯誤: {str(e)}")
-            logger.error(traceback.format_exc())
-            return []
+            except Exception as e:
+                logger.error(f"商品獲取過程中發生錯誤: {str(e)}")
+                logger.error(traceback.format_exc())
+                if attempt < max_retries - 1:
+                    logger.info(f"等待 {retry_delay} 秒後重試...")
+                    time.sleep(retry_delay)
+                    continue
+                return []
+        
+        logger.error(f"已重試 {max_retries} 次仍然失敗")
+        return []
 
     def update_products(self, products_data):
         """更新商品数据到数据库"""
@@ -339,7 +370,6 @@ class ChiikawaMonitor:
                     'url': original_product['url'],
                     'image_url': original_product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
                     'price': original_product.get('price', 0),
-                    'tags': original_product.get('tags', []),
                     'time': current_time
                 }
                 
