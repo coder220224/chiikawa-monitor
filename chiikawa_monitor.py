@@ -295,6 +295,11 @@ class ChiikawaMonitor:
             
             # 1. 获取现有的所有商品数据（用于比对和保存下架商品信息）
             existing_products = list(self.products.find({}))
+            # 确保现有数据中的时间都转换为台湾时区
+            for product in existing_products:
+                if 'last_seen' in product:
+                    product['last_seen'] = self.ensure_timezone(product['last_seen'])
+            
             existing_products_dict = {p['url']: p for p in existing_products}
             existing_urls = set(existing_products_dict.keys())
             
@@ -382,9 +387,9 @@ class ChiikawaMonitor:
             
             # 批量插入新数据
             if products_data:
-                # 确保所有文档都有 last_seen 字段
+                # 确保所有文档都有带时区的 last_seen 字段
                 for product in products_data:
-                    product['last_seen'] = current_time
+                    product['last_seen'] = current_time  # current_time 已经带有台湾时区信息
                 
                 self.products.insert_many(products_data)
                 logger.info(f"products 集合更新完成：插入 {len(products_data)} 个商品")
@@ -908,7 +913,14 @@ class ChiikawaMonitor:
             # 檢查最後更新時間超過7天的商品
             current_time = datetime.now(TW_TIMEZONE)
             seven_days_ago = current_time - timedelta(days=7)
-            old_products = [p for p in all_products if p['last_seen'] < seven_days_ago]
+            
+            # 確保所有時間都轉換為台灣時區
+            old_products = []
+            for p in all_products:
+                last_seen = self.ensure_timezone(p['last_seen'])
+                if last_seen < seven_days_ago:
+                    p['last_seen'] = last_seen  # 更新為台灣時區的時間
+                    old_products.append(p)
             
             # 輸出檢查結果
             logger.info(f"\n=== Products 集合檢查結果 ===")
@@ -921,7 +933,7 @@ class ChiikawaMonitor:
                 logger.info("\n超過7天未更新的商品列表:")
                 for product in old_products:
                     days_old = (current_time - product['last_seen']).days
-                    logger.info(f"- {product['name']} (最後更新: {days_old} 天前)")
+                    logger.info(f"- {product['name']} (最後更新: {days_old} 天前，時間: {product['last_seen'].strftime('%Y-%m-%d %H:%M:%S %Z')})")
             
             # 如果發現重複 URL，列出它們
             if duplicate_urls > 0:
@@ -991,6 +1003,18 @@ class ChiikawaMonitor:
             logger.error(f"清理 products 集合時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
             return None
+
+    def ensure_timezone(self, dt):
+        """确保时间对象带有时区信息并转换为台湾时区"""
+        if dt is None:
+            return datetime.now(TW_TIMEZONE)
+            
+        # 如果时间没有时区信息，假设是 UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=pytz.UTC)
+            
+        # 将时间转换为台湾时区
+        return dt.astimezone(TW_TIMEZONE)
 
 if __name__ == "__main__":
     # 測試代碼
