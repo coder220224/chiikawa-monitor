@@ -964,7 +964,8 @@ async def show_commands(ctx):
                 "🔄 `!start` - 啟動自動商品監控（每10分鐘自動檢查）\n"
                 "⏹️ `!stop` - 停止自動商品監控\n"
                 "🔍 `!檢查` - 檢查商品數量\n"
-                "💾 `!資料庫` - 檢查資料庫狀態"
+                "💾 `!資料庫` - 檢查資料庫狀態\n"
+                "🧹 `!清理` - 檢查並清理資料庫中的問題數據"
             ),
             inline=False
         )
@@ -1598,6 +1599,82 @@ def handle_line_restock(event):
             )
         except:
             pass
+
+@bot.command(name='清理')
+@has_role(ADMIN_ROLE_ID)
+async def clean_database(ctx):
+    """檢查並清理資料庫中的問題數據"""
+    try:
+        # 發送開始檢查的消息
+        message = await ctx.send("正在檢查資料庫...")
+        
+        # 檢查數據一致性
+        check_results = monitor.check_products_consistency()
+        if not check_results:
+            await message.edit(content="檢查資料庫時發生錯誤")
+            return
+            
+        # 創建檢查結果的嵌入消息
+        embed = discord.Embed(
+            title="🔍 資料庫檢查結果",
+            description="檢查 products 集合中的數據",
+            color=0x00ff00
+        )
+        
+        embed.add_field(
+            name="商品數量",
+            value=f"📊 總數: {check_results['total']}\n🔄 唯一URL: {check_results['unique_urls']}\n⚠️ 重複: {check_results['duplicates']}\n⏰ 過期: {check_results['old_products']}",
+            inline=False
+        )
+        
+        # 如果發現問題，詢問是否要清理
+        if check_results['duplicates'] > 0 or check_results['old_products'] > 0:
+            embed.add_field(
+                name="🧹 清理建議",
+                value="發現重複或過期的數據，是否要進行清理？\n請回覆 `是` 或 `否`",
+                inline=False
+            )
+            await message.edit(content=None, embed=embed)
+            
+            # 等待用戶回覆
+            def check(m):
+                return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ['是', '否', 'yes', 'no']
+            
+            try:
+                reply = await bot.wait_for('message', timeout=30.0, check=check)
+                if reply.content.lower() in ['是', 'yes']:
+                    # 執行清理
+                    clean_results = monitor.clean_products_collection()
+                    if clean_results:
+                        embed = discord.Embed(
+                            title="🧹 資料庫清理結果",
+                            description="清理完成",
+                            color=0x00ff00
+                        )
+                        embed.add_field(
+                            name="清理統計",
+                            value=f"🗑️ 刪除過期商品: {clean_results['deleted_old']}\n🗑️ 刪除重複記錄: {clean_results['deleted_duplicates']}",
+                            inline=False
+                        )
+                        await ctx.send(embed=embed)
+                    else:
+                        await ctx.send("❌ 清理過程中發生錯誤")
+                else:
+                    await ctx.send("已取消清理操作")
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ 操作超時，已取消清理")
+        else:
+            embed.add_field(
+                name="✅ 檢查結果",
+                value="數據庫狀態良好，無需清理",
+                inline=False
+            )
+            await message.edit(content=None, embed=embed)
+            
+    except Exception as e:
+        logger.error(f"清理資料庫時發生錯誤: {str(e)}")
+        logger.error(traceback.format_exc())
+        await ctx.send(f"執行過程中發生錯誤：{str(e)}")
 
 # 運行 Bot
 if __name__ == "__main__":
