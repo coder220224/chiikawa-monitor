@@ -1046,6 +1046,70 @@ class ChiikawaMonitor:
         # 将时间转换为台湾时区
         return dt.astimezone(TW_TIMEZONE)
 
+    def delete_duplicate_history(self, collection_name):
+        """清理指定集合中的重複記錄，只保留每個 URL 最新的一筆記錄
+        
+        Args:
+            collection_name: 要清理的集合名稱 ('new', 'delisted', 'resale')
+            
+        Returns:
+            tuple: (刪除的記錄數, 保留的記錄數)
+        """
+        try:
+            # 獲取集合引用
+            collection = getattr(self, collection_name)
+            if not collection:
+                logger.error(f"找不到集合：{collection_name}")
+                return (0, 0)
+                
+            # 獲取所有記錄並按 URL 分組
+            all_records = list(collection.find().sort('date', -1))  # 按日期降序排序
+            url_groups = {}
+            
+            # 將記錄按 URL 分組
+            for record in all_records:
+                url = record['url']
+                if url not in url_groups:
+                    url_groups[url] = []
+                url_groups[url].append(record)
+            
+            # 統計數據
+            total_records = len(all_records)
+            records_to_keep = []
+            records_to_delete = []
+            
+            # 對每個 URL 的記錄進行處理
+            for url, records in url_groups.items():
+                if len(records) > 1:
+                    # 保留最新的記錄，其餘的刪除
+                    records_to_keep.append(records[0]['_id'])  # 第一條是最新的（因為已經排序）
+                    for record in records[1:]:
+                        records_to_delete.append(record['_id'])
+                else:
+                    # 只有一條記錄，保留
+                    records_to_keep.append(records[0]['_id'])
+            
+            # 刪除重複記錄
+            if records_to_delete:
+                result = collection.delete_many({'_id': {'$in': records_to_delete}})
+                deleted_count = result.deleted_count
+            else:
+                deleted_count = 0
+                
+            kept_count = len(records_to_keep)
+            
+            logger.info(f"\n=== {collection_name} 集合清理結果 ===")
+            logger.info(f"原始記錄數：{total_records}")
+            logger.info(f"保留記錄數：{kept_count}")
+            logger.info(f"刪除記錄數：{deleted_count}")
+            
+            return (deleted_count, kept_count)
+            
+        except Exception as e:
+            logger.error(f"清理 {collection_name} 集合重複記錄時發生錯誤：{str(e)}")
+            logger.error(traceback.format_exc())
+            return (0, 0)
+
 if __name__ == "__main__":
     # 測試代碼
     monitor = ChiikawaMonitor()
