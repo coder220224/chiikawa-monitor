@@ -226,158 +226,177 @@ async def check_updates(ctx):
             logger.error(traceback.format_exc())
             await channel.send(f"錯誤：{error_msg}")
             return
-        
-        # 獲取新的商品資料（加上失敗時 raise FetchProductError）
-        try:
-            logger.info("開始獲取新商品數據...")
-            start_time = time.time()
-            new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
-            logger.info(f"獲取新商品數據完成，耗時：{time.time() - start_time:.2f}秒")
-            if not new_products_data:
-                error_msg = "獲取新商品數據失敗：返回空列表"
+
+        # 進行三次檢查，確保結果一致
+        verification_results = []
+        for check_count in range(3):
+            try:
+                logger.info(f"開始第 {check_count + 1} 次檢查...")
+                start_time = time.time()
+                new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
+                logger.info(f"第 {check_count + 1} 次檢查完成，耗時：{time.time() - start_time:.2f}秒")
+                
+                if not new_products_data:
+                    error_msg = f"第 {check_count + 1} 次檢查獲取新商品數據失敗：返回空列表"
+                    logger.error(error_msg)
+                    await channel.send(f"錯誤：{error_msg}")
+                    raise FetchProductError(error_msg)
+                    
+                # 將結果轉換為 URL 集合
+                current_urls = {p['url'] for p in new_products_data}
+                verification_results.append(current_urls)
+                
+                # 如果不是最後一次檢查，等待5秒再進行下一次
+                if check_count < 2:
+                    await asyncio.sleep(5)
+                    
+            except Exception as e:
+                error_msg = f"第 {check_count + 1} 次檢查時發生錯誤：{str(e)}"
                 logger.error(error_msg)
-                logger.error("請檢查 fetch_products 函數的執行情況")
+                logger.error(traceback.format_exc())
                 await channel.send(f"錯誤：{error_msg}")
                 raise FetchProductError(error_msg)
-            new_products = {p['url']: p for p in new_products_data}
-            logger.info(f"成功獲取新商品數據：{len(new_products)} 個")
-        except Exception as e:
-            error_msg = f"獲取新商品數據時發生錯誤：{str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            await channel.send(f"錯誤：{error_msg}")
-            raise FetchProductError(error_msg)
-            
+        
         # 檢查是否是第一次執行（資料庫為空）
         is_first_run = len(old_products) == 0
         logger.info(f"是否首次執行：{is_first_run}")
         
-        # 比對差異（使用集合操作提高效率）
-        start_time = time.time()
-        new_urls = set(new_products.keys())
-        old_urls = set(old_products.keys())
-        
-        # 找出新上架的URL
-        new_listing_urls = new_urls - old_urls if not is_first_run else set()
-        # 找出下架的URL
-        delisted_urls = old_urls - new_urls if not is_first_run else set()
-        
-        new_listings = [(new_products[url]['name'], url) for url in new_listing_urls]
-        missing_products = [(old_products[url]['name'], url) for url in delisted_urls]
-        
-        logger.info(f"差異比對完成，耗時：{time.time() - start_time:.2f}秒")
-        logger.info(f"發現 {len(new_listings)} 個新上架商品，{len(missing_products)} 個可能下架商品")
-        
-        # 批量檢查下架商品
-        delisted = []
-        if not is_first_run and missing_products:
-            start_time = time.time()
-            logger.info(f"開始檢查 {len(missing_products)} 個可能下架的商品...")
-            
-            # 批量檢查，每批20個
-            batch_size = 20
-            for i in range(0, len(missing_products), batch_size):
-                batch = missing_products[i:i + batch_size]
-                batch_results = await asyncio.gather(
-                    *[bot.loop.run_in_executor(None, lambda u=url: monitor.check_product_url(u)) 
-                      for name, url in batch]
-                )
-                
-                # 處理批次結果
-                for (name, url), is_available in zip(batch, batch_results):
-                    if not is_available:
-                        delisted.append((name, url))
-                        await bot.loop.run_in_executor(
-                            None, 
-                            lambda n=name, u=url: monitor.record_history({'name': n, 'url': u}, 'delisted')
-                        )
-                
-                logger.info(f"已檢查 {min(i + batch_size, len(missing_products))} / {len(missing_products)} 個商品")
-            
-            logger.info(f"下架商品檢查完成，確認 {len(delisted)} 個商品下架，耗時：{time.time() - start_time:.2f}秒")
-        
-        # 批量記錄新上架商品
-        if new_listings:
-            start_time = time.time()
-            logger.info(f"開始記錄 {len(new_listings)} 個新上架商品...")
-            
-            # 批量處理，每批50個
-            batch_size = 50
-            for i in range(0, len(new_listings), batch_size):
-                batch = new_listings[i:i + batch_size]
-                await asyncio.gather(
-                    *[bot.loop.run_in_executor(
-                        None,
-                        lambda p=new_products[url]: monitor.record_history(p, 'new')
-                    ) for name, url in batch]
-                )
-                
-                logger.info(f"已記錄 {min(i + batch_size, len(new_listings))} / {len(new_listings)} 個新商品")
-            
-            logger.info(f"新商品記錄完成，耗時：{time.time() - start_time:.2f}秒")
-        
-        # 更新資料庫
-        start_time = time.time()
-        await bot.loop.run_in_executor(None, lambda: monitor.update_products(new_products_data))
-        logger.info(f"資料庫更新完成，耗時：{time.time() - start_time:.2f}秒")
-        
-        # 如果是第一次執行，發送初始化訊息
         if is_first_run:
-            embed = discord.Embed(title="🔍 吉伊卡哇商品監控初始化", 
-                                description=f"初始化時間: {current_time}\n目前商品總數: {len(new_products)}", 
+            # 如果是第一次執行，直接使用最後一次的結果
+            new_products = {p['url']: p for p in new_products_data}
+        else:
+            # 比對三次檢查的結果
+            old_urls = set(old_products.keys())
+            
+            # 檢查三次結果是否一致
+            if not all(urls == verification_results[0] for urls in verification_results):
+                logger.warning("三次檢查結果不一致，本次更新將被忽略")
+                await channel.send("⚠️ 三次檢查結果不一致，為避免誤判，本次更新將被忽略")
+                return
+            
+            # 使用一致的結果進行後續處理
+            current_urls = verification_results[0]
+            new_products = {p['url']: p for p in new_products_data}
+            
+            # 找出確認的新上架和下架商品
+            verified_new_urls = current_urls - old_urls
+            verified_missing_urls = old_urls - current_urls
+            
+            logger.info(f"三次檢查後確認：{len(verified_new_urls)} 個新上架商品，{len(verified_missing_urls)} 個可能下架商品")
+            
+            new_listings = [(new_products[url]['name'], url) for url in verified_new_urls]
+            missing_products = [(old_products[url]['name'], url) for url in verified_missing_urls]
+            
+            # 批量檢查下架商品
+            delisted = []
+            if missing_products:
+                start_time = time.time()
+                logger.info(f"開始檢查 {len(missing_products)} 個可能下架的商品...")
+                
+                # 批量檢查，每批20個
+                batch_size = 20
+                for i in range(0, len(missing_products), batch_size):
+                    batch = missing_products[i:i + batch_size]
+                    batch_results = await asyncio.gather(
+                        *[bot.loop.run_in_executor(None, lambda u=url: monitor.check_product_url(u)) 
+                          for name, url in batch]
+                    )
+                    
+                    # 處理批次結果
+                    for (name, url), is_available in zip(batch, batch_results):
+                        if not is_available:
+                            delisted.append((name, url))
+                            await bot.loop.run_in_executor(
+                                None, 
+                                lambda n=name, u=url: monitor.record_history({'name': n, 'url': u}, 'delisted')
+                            )
+                    
+                    logger.info(f"已檢查 {min(i + batch_size, len(missing_products))} / {len(missing_products)} 個商品")
+                
+                logger.info(f"下架商品檢查完成，確認 {len(delisted)} 個商品下架，耗時：{time.time() - start_time:.2f}秒")
+            
+            # 批量記錄新上架商品
+            if new_listings:
+                start_time = time.time()
+                logger.info(f"開始記錄 {len(new_listings)} 個新上架商品...")
+                
+                # 批量處理，每批50個
+                batch_size = 50
+                for i in range(0, len(new_listings), batch_size):
+                    batch = new_listings[i:i + batch_size]
+                    await asyncio.gather(
+                        *[bot.loop.run_in_executor(
+                            None,
+                            lambda p=new_products[url]: monitor.record_history(p, 'new')
+                        ) for name, url in batch]
+                    )
+                    
+                    logger.info(f"已記錄 {min(i + batch_size, len(new_listings))} / {len(new_listings)} 個新商品")
+                
+                logger.info(f"新商品記錄完成，耗時：{time.time() - start_time:.2f}秒")
+            
+            # 更新資料庫
+            start_time = time.time()
+            await bot.loop.run_in_executor(None, lambda: monitor.update_products(new_products_data))
+            logger.info(f"資料庫更新完成，耗時：{time.time() - start_time:.2f}秒")
+            
+            # 如果是第一次執行，發送初始化訊息
+            if is_first_run:
+                embed = discord.Embed(title="🔍 吉伊卡哇商品監控初始化", 
+                                    description=f"初始化時間: {current_time}\n目前商品總數: {len(new_products)}", 
+                                    color=0x00ff00)
+                embed.add_field(name="初始化完成", value="已完成商品資料庫的初始化，開始監控商品變化。", inline=False)
+                await channel.send(embed=embed)
+                logger.info("資料庫初始化完成")
+                return
+            
+            # 發送例行監控通知
+            embed = discord.Embed(title="🔍 吉伊卡哇商品監控", 
+                                description=f"檢查時間: {current_time}\n目前商品總數: {len(new_products)}", 
                                 color=0x00ff00)
-            embed.add_field(name="初始化完成", value="已完成商品資料庫的初始化，開始監控商品變化。", inline=False)
-            await channel.send(embed=embed)
-            logger.info("資料庫初始化完成")
-            return
-        
-        # 發送例行監控通知
-        embed = discord.Embed(title="🔍 吉伊卡哇商品監控", 
-                            description=f"檢查時間: {current_time}\n目前商品總數: {len(new_products)}", 
-                            color=0x00ff00)
-        
-        if new_listings:
-            new_products_text = "\n".join([f"🆕 [{name}]({url})" for name, url in new_listings])
-            if len(new_products_text) > 1024:
-                new_products_text = new_products_text[:1021] + "..."
-            embed.add_field(name="新上架商品", value=new_products_text, inline=False)
-        else:
-            embed.add_field(name="新上架商品", value="無", inline=False)
-        
-        if delisted:
-            delisted_text = "\n".join([f"❌ [{name}]({url})" for name, url in delisted])
-            if len(delisted_text) > 1024:
-                delisted_text = delisted_text[:1021] + "..."
-            embed.add_field(name="下架商品", value=delisted_text, inline=False)
-        else:
-            embed.add_field(name="下架商品", value="無", inline=False)
-        
-        # 發送例行通知
-        await channel.send(embed=embed)
-        
-        # 如果有變化，在當前頻道發送通知
-        if new_listings or delisted:
-            alert_embed = discord.Embed(title="⚠️ 商品更新提醒", 
-                                      description=f"檢查時間: {current_time}", 
-                                      color=0xFF0000)
             
             if new_listings:
                 new_products_text = "\n".join([f"🆕 [{name}]({url})" for name, url in new_listings])
                 if len(new_products_text) > 1024:
                     new_products_text = new_products_text[:1021] + "..."
-                alert_embed.add_field(name="新上架商品", value=new_products_text, inline=False)
+                embed.add_field(name="新上架商品", value=new_products_text, inline=False)
+            else:
+                embed.add_field(name="新上架商品", value="無", inline=False)
             
             if delisted:
                 delisted_text = "\n".join([f"❌ [{name}]({url})" for name, url in delisted])
                 if len(delisted_text) > 1024:
                     delisted_text = delisted_text[:1021] + "..."
-                alert_embed.add_field(name="下架商品", value=delisted_text, inline=False)
+                embed.add_field(name="下架商品", value=delisted_text, inline=False)
+            else:
+                embed.add_field(name="下架商品", value="無", inline=False)
             
-            # 在執行指令的頻道發送通知
-            await channel.send(embed=alert_embed)
-        
-        logger.info(f"=== 檢查完成 ===\n")
+            # 發送例行通知
+            await channel.send(embed=embed)
             
+            # 如果有變化，在當前頻道發送通知
+            if new_listings or delisted:
+                alert_embed = discord.Embed(title="⚠️ 商品更新提醒", 
+                                          description=f"檢查時間: {current_time}", 
+                                          color=0xFF0000)
+                
+                if new_listings:
+                    new_products_text = "\n".join([f"🆕 [{name}]({url})" for name, url in new_listings])
+                    if len(new_products_text) > 1024:
+                        new_products_text = new_products_text[:1021] + "..."
+                    alert_embed.add_field(name="新上架商品", value=new_products_text, inline=False)
+                
+                if delisted:
+                    delisted_text = "\n".join([f"❌ [{name}]({url})" for name, url in delisted])
+                    if len(delisted_text) > 1024:
+                        delisted_text = delisted_text[:1021] + "..."
+                    alert_embed.add_field(name="下架商品", value=delisted_text, inline=False)
+                
+                # 在執行指令的頻道發送通知
+                await channel.send(alert_embed)
+            
+            logger.info(f"=== 檢查完成 ===\n")
+                
     except Exception as e:
         error_msg = f"檢查更新時發生錯誤: {str(e)}"
         logger.error(error_msg)
