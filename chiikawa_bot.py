@@ -1705,7 +1705,7 @@ async def clean_duplicate_history(ctx):
         message = await ctx.send("開始清理重複的歷史記錄...")
         
         # 清理各個集合的重複記錄
-        collections = ['new', 'delisted', 'resale']
+        collections = ['new', 'delisted', 'resale', 'history']  # 添加 history 集合
         total_deleted = 0
         total_kept = 0
         results = []
