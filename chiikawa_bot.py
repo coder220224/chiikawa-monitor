@@ -24,6 +24,7 @@ from linebot.models import (
     ImageComponent, ImageCarouselTemplate, ImageCarouselColumn, TemplateSendMessage
 )
 import time
+from bson import ObjectId
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -1694,6 +1695,60 @@ async def clean_database(ctx):
         logger.error(f"清理資料庫時發生錯誤: {str(e)}")
         logger.error(traceback.format_exc())
         await ctx.send(f"執行過程中發生錯誤：{str(e)}")
+
+@bot.command(name='清理重複')
+@has_role(ADMIN_ROLE_ID)
+async def clean_duplicate_history(ctx):
+    """清理歷史記錄中的重複項目"""
+    try:
+        # 發送開始訊息
+        message = await ctx.send("開始清理重複的歷史記錄...")
+        
+        # 清理各個集合的重複記錄
+        collections = ['new', 'delisted', 'resale']
+        total_deleted = 0
+        total_kept = 0
+        results = []
+        
+        for collection in collections:
+            deleted, kept = monitor.delete_duplicate_history(collection)
+            total_deleted += deleted
+            total_kept += kept
+            results.append(f"{collection} 集合：刪除 {deleted} 筆，保留 {kept} 筆")
+        
+        # 更新訊息
+        result_text = "\n".join(results)
+        summary = f"清理完成！\n總計：刪除 {total_deleted} 筆重複記錄，保留 {total_kept} 筆記錄\n\n詳細結果：\n{result_text}"
+        await message.edit(content=summary)
+        
+    except Exception as e:
+        await ctx.send(f"清理過程中發生錯誤：{str(e)}")
+        logger.error(f"清理重複記錄時發生錯誤：{str(e)}")
+        logger.error(traceback.format_exc())
+
+# 在 monitor.py 中添加新方法
+def delete_duplicate_history(self, keep_ids):
+    """刪除重複的歷史記錄
+    
+    Args:
+        keep_ids (set): 要保留的記錄ID集合
+        
+    Returns:
+        int: 刪除的記錄數量
+    """
+    try:
+        # 轉換為 ObjectId
+        keep_ids = {ObjectId(id_) for id_ in keep_ids}
+        
+        # 刪除不在 keep_ids 中的記錄
+        result = self.history_collection.delete_many({
+            '_id': {'$nin': list(keep_ids)}
+        })
+        
+        return result.deleted_count
+    except Exception as e:
+        logger.error(f"刪除重複歷史記錄時發生錯誤: {str(e)}")
+        raise
 
 # 運行 Bot
 if __name__ == "__main__":
