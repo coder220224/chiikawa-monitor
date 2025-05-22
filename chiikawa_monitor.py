@@ -293,55 +293,106 @@ class ChiikawaMonitor:
             start_time = time.time()
             logger.info("开始更新商品数据...")
             
-            # 1. 获取new集合中的商品URL
-            new_products = list(self.new.find({}, {'url': 1, '_id': 0}))
-            new_urls = {p['url'] for p in new_products}
+            # 1. 获取现有的所有商品数据（用于比对和保存下架商品信息）
+            existing_products = list(self.products.find({}))
+            existing_products_dict = {p['url']: p for p in existing_products}
+            existing_urls = set(existing_products_dict.keys())
             
-            # 2. 如果new集合中有商品，检查并清理delisted和resale集合
-            if new_urls:
+            # 2. 整理新获取的商品数据
+            new_products_dict = {p['url']: p for p in products_data}
+            new_urls = set(new_products_dict.keys())
+            
+            # 3. 找出新上架、下架的商品
+            new_listing_urls = new_urls - existing_urls  # 新上架
+            delisted_urls = existing_urls - new_urls     # 下架
+            
+            current_time = datetime.now(TW_TIMEZONE)
+            
+            # 4. 如果有新商品，清理相关集合
+            if new_listing_urls:
                 # 从下架集合中删除已重新上架的商品
                 delisted_result = self.delisted.delete_many({
-                    'url': {'$in': list(new_urls)}
+                    'url': {'$in': list(new_listing_urls)}
                 })
                 if delisted_result.deleted_count > 0:
                     logger.info(f"从下架集合中删除 {delisted_result.deleted_count} 个重新上架的商品")
                 
-                # 从补货集合中删除已重新上架的商品
+                # 从补货集合中删除已上架的商品
                 resale_result = self.resale.delete_many({
-                    'url': {'$in': list(new_urls)}
+                    'url': {'$in': list(new_listing_urls)}
                 })
                 if resale_result.deleted_count > 0:
                     logger.info(f"从补货集合中删除 {resale_result.deleted_count} 个已上架的商品")
             
-            # 3. 更新商品数据
-            current_time = datetime.now(TW_TIMEZONE)
-            operations = []
-            for product in products_data:
-                if 'url' not in product:
-                    continue
+            # 5. 处理下架商品（使用原有数据）
+            for url in delisted_urls:
+                original_product = existing_products_dict[url]
+                history_data = {
+                    'date': current_time,
+                    'type': 'delisted',
+                    'name': original_product['name'],
+                    'url': original_product['url'],
+                    'image_url': original_product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                    'price': original_product.get('price', 0),
+                    'tags': original_product.get('tags', []),
+                    'time': current_time
+                }
                 
-                product['last_seen'] = current_time
-                operations.append(
-                    pymongo.UpdateOne(
-                        {'url': product['url']},
-                        {'$set': product},
-                        upsert=True
-                    )
-                )
+                # 写入下架集合
+                self.delisted.insert_one(history_data)
+                # 写入历史记录
+                self.history.insert_one(history_data)
+                logger.info(f"记录下架商品: {original_product['name']}")
             
-            # 执行批量更新
-            if operations:
-                result = self.products.bulk_write(operations, ordered=False)
-                logger.info(f"商品数据更新完成：{len(operations)} 个商品")
-                logger.info(f"更新结果：matched={result.matched_count}, modified={result.modified_count}, upserted={result.upserted_count}")
+            # 6. 处理新上架商品（使用新数据）
+            for url in new_listing_urls:
+                new_product = new_products_dict[url]
+                history_data = {
+                    'date': current_time,
+                    'type': 'new',
+                    'name': new_product['name'],
+                    'url': new_product['url'],
+                    'image_url': new_product.get('image_url', 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'),
+                    'price': new_product.get('price', 0),
+                    'available': new_product.get('available', False),
+                    'tags': new_product.get('tags', []),
+                    'time': current_time
+                }
+                
+                # 检查是否是重新上架
+                was_delisted = self.delisted.find_one({'url': url})
+                if was_delisted:
+                    history_data['is_restock'] = True
+                    logger.info(f"商品重新上架: {new_product['name']}")
+                else:
+                    history_data['is_restock'] = False
+                    logger.info(f"新商品上架: {new_product['name']}")
+                
+                # 写入新上架集合
+                self.new.insert_one(history_data)
+                # 写入历史记录
+                self.history.insert_one(history_data)
             
-            # 同步更新history集合中的商品库存状态
-            self.sync_product_availability(products_data)
-            
-            # 处理 RE 标签的商品
+            # 7. 处理补货商品（使用新数据）
             self.process_resale_items(products_data)
             
-            # 清理過舊的數據記錄
+            # 8. 最后，更新 products 集合（完全同步到最新状态）
+            # 先清空 products 集合
+            self.products.delete_many({})
+            
+            # 批量插入新数据
+            if products_data:
+                # 确保所有文档都有 last_seen 字段
+                for product in products_data:
+                    product['last_seen'] = current_time
+                
+                self.products.insert_many(products_data)
+                logger.info(f"products 集合更新完成：插入 {len(products_data)} 个商品")
+            
+            # 9. 同步商品库存状态到历史记录
+            self.sync_product_availability(products_data)
+            
+            # 10. 清理过旧的记录
             self.clean_old_records()
             
             logger.info(f"所有更新操作完成，总耗时：{time.time() - start_time:.2f}秒")
@@ -577,9 +628,20 @@ class ChiikawaMonitor:
                 'time': current_time
             }
             
-            # 添加圖片URL
-            if 'image_url' in product:
-                history_data['image_url'] = product['image_url']
+            # 如果是下架商品，先從 products 集合獲取原有的圖片 URL
+            if type_ == 'delisted':
+                existing_product = self.products.find_one({'url': product['url']})
+                if existing_product and 'image_url' in existing_product:
+                    history_data['image_url'] = existing_product['image_url']
+                    logger.info(f"使用原有商品圖片 URL: {existing_product['image_url']}")
+                else:
+                    # 如果找不到原有圖片，使用默認圖片
+                    history_data['image_url'] = 'https://chiikawamarket.jp/cdn/shop/files/chiikawa_logo_144x.png'
+                    logger.info("找不到原有商品圖片，使用默認圖片")
+            else:
+                # 其他情況（如新上架）使用傳入的圖片 URL
+                if 'image_url' in product:
+                    history_data['image_url'] = product['image_url']
             
             # 如果是新上架商品
             if type_ == 'new':
@@ -830,6 +892,105 @@ class ChiikawaMonitor:
         except Exception as e:
             logger.error(f"建立索引時發生錯誤: {str(e)}")
             logger.error(traceback.format_exc())
+
+    def check_products_consistency(self):
+        """檢查 products 集合中的數據一致性"""
+        try:
+            # 獲取所有商品
+            all_products = list(self.products.find({}, {'url': 1, 'name': 1, 'last_seen': 1, '_id': 0}))
+            total_products = len(all_products)
+            
+            # 檢查是否有重複的 URL
+            urls = [p['url'] for p in all_products]
+            unique_urls = set(urls)
+            duplicate_urls = len(urls) - len(unique_urls)
+            
+            # 檢查最後更新時間超過7天的商品
+            current_time = datetime.now(TW_TIMEZONE)
+            seven_days_ago = current_time - timedelta(days=7)
+            old_products = [p for p in all_products if p['last_seen'] < seven_days_ago]
+            
+            # 輸出檢查結果
+            logger.info(f"\n=== Products 集合檢查結果 ===")
+            logger.info(f"總商品數: {total_products}")
+            logger.info(f"唯一 URL 數: {len(unique_urls)}")
+            logger.info(f"重複 URL 數: {duplicate_urls}")
+            logger.info(f"超過7天未更新的商品數: {len(old_products)}")
+            
+            if old_products:
+                logger.info("\n超過7天未更新的商品列表:")
+                for product in old_products:
+                    days_old = (current_time - product['last_seen']).days
+                    logger.info(f"- {product['name']} (最後更新: {days_old} 天前)")
+            
+            # 如果發現重複 URL，列出它們
+            if duplicate_urls > 0:
+                from collections import Counter
+                url_counts = Counter(urls)
+                duplicate_urls = {url: count for url, count in url_counts.items() if count > 1}
+                logger.info("\n重複的 URL:")
+                for url, count in duplicate_urls.items():
+                    logger.info(f"- {url} (出現 {count} 次)")
+            
+            return {
+                'total': total_products,
+                'unique_urls': len(unique_urls),
+                'duplicates': duplicate_urls,
+                'old_products': len(old_products)
+            }
+            
+        except Exception as e:
+            logger.error(f"檢查 products 集合時發生錯誤: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+
+    def clean_products_collection(self):
+        """清理 products 集合中的問題數據"""
+        try:
+            # 獲取當前時間
+            current_time = datetime.now(TW_TIMEZONE)
+            seven_days_ago = current_time - timedelta(days=7)
+            
+            # 刪除超過7天未更新的商品
+            result = self.products.delete_many({
+                'last_seen': {'$lt': seven_days_ago}
+            })
+            deleted_old = result.deleted_count
+            
+            # 檢查並修復重複的 URL
+            pipeline = [
+                {'$group': {
+                    '_id': '$url',
+                    'count': {'$sum': 1},
+                    'docs': {'$push': '$_id'}
+                }},
+                {'$match': {
+                    'count': {'$gt': 1}
+                }}
+            ]
+            
+            duplicates = list(self.products.aggregate(pipeline))
+            deleted_duplicates = 0
+            
+            for dup in duplicates:
+                # 保留最新的一條記錄，刪除其他的
+                docs_to_delete = dup['docs'][1:]  # 保留第一個文檔
+                result = self.products.delete_many({'_id': {'$in': docs_to_delete}})
+                deleted_duplicates += result.deleted_count
+            
+            logger.info(f"\n=== Products 集合清理結果 ===")
+            logger.info(f"刪除超過7天未更新的商品: {deleted_old} 個")
+            logger.info(f"刪除重複的商品記錄: {deleted_duplicates} 個")
+            
+            return {
+                'deleted_old': deleted_old,
+                'deleted_duplicates': deleted_duplicates
+            }
+            
+        except Exception as e:
+            logger.error(f"清理 products 集合時發生錯誤: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
 
 if __name__ == "__main__":
     # 測試代碼
