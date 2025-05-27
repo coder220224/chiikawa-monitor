@@ -230,22 +230,28 @@ async def check_updates(ctx):
 
         # 進行三次檢查，確保結果一致
         verification_results = []
+        new_products_data = None  # 用於存儲最後一次的完整商品數據
+        
         for check_count in range(3):
             try:
                 logger.info(f"開始第 {check_count + 1} 次檢查...")
                 start_time = time.time()
-                new_products_data = await bot.loop.run_in_executor(None, monitor.fetch_products)
+                current_products = await bot.loop.run_in_executor(None, monitor.fetch_products)
                 logger.info(f"第 {check_count + 1} 次檢查完成，耗時：{time.time() - start_time:.2f}秒")
                 
-                if not new_products_data:
+                if not current_products:
                     error_msg = f"第 {check_count + 1} 次檢查獲取新商品數據失敗：返回空列表"
                     logger.error(error_msg)
                     await channel.send(f"錯誤：{error_msg}")
                     raise FetchProductError(error_msg)
-                    
+                
                 # 將結果轉換為 URL 集合
-                current_urls = {p['url'] for p in new_products_data}
+                current_urls = {p['url'] for p in current_products}
                 verification_results.append(current_urls)
+                
+                # 保存最後一次的完整商品數據
+                if check_count == 2:
+                    new_products_data = current_products
                 
                 # 如果不是最後一次檢查，等待5秒再進行下一次
                 if check_count < 2:
@@ -276,8 +282,8 @@ async def check_updates(ctx):
                 return
             
             # 使用一致的結果進行後續處理
-            current_urls = verification_results[0]
-            new_products = {p['url']: p for p in new_products_data}
+            current_urls = verification_results[0]  # 使用第一次的結果，因為已確認三次都一致
+            new_products = {p['url']: p for p in new_products_data}  # 使用最後一次的完整商品數據
             
             # 找出確認的新上架和下架商品
             verified_new_urls = current_urls - old_urls
