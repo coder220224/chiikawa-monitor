@@ -7,7 +7,7 @@ import asyncio
 from chiikawa_monitor import ChiikawaMonitor
 import logging
 import sys
-from config import TOKEN, WORK_DIR, MONGODB_URI, DISCORD_WEBHOOK_URL
+from config import TOKEN, WORK_DIR, MONGODB_URI
 from aiohttp import web
 import socket
 import ssl
@@ -25,7 +25,6 @@ from linebot.models import (
 )
 import time
 from bson import ObjectId
-from discord import Webhook
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -226,10 +225,7 @@ async def check_updates(ctx):
             error_msg = f"獲取現有商品數據失敗：{str(e)}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
-            # 发送错误消息
-            async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                await webhook.send(f"錯誤：{error_msg}", session=session)
+            await channel.send(f"錯誤：{error_msg}")
             return
 
         # 進行三次檢查，確保結果一致
@@ -246,10 +242,7 @@ async def check_updates(ctx):
                 if not current_products:
                     error_msg = f"第 {check_count + 1} 次檢查獲取新商品數據失敗：返回空列表"
                     logger.error(error_msg)
-                    # 发送错误消息
-                    async with aiohttp.ClientSession() as session:
-                        webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                        await webhook.send(f"錯誤：{error_msg}", session=session)
+                    await channel.send(f"錯誤：{error_msg}")
                     raise FetchProductError(error_msg)
                 
                 # 將結果轉換為 URL 集合
@@ -268,10 +261,7 @@ async def check_updates(ctx):
                 error_msg = f"第 {check_count + 1} 次檢查時發生錯誤：{str(e)}"
                 logger.error(error_msg)
                 logger.error(traceback.format_exc())
-                # 发送错误消息
-                async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                    await webhook.send(f"錯誤：{error_msg}", session=session)
+                await channel.send(f"錯誤：{error_msg}")
                 raise FetchProductError(error_msg)
         
         # 檢查是否是第一次執行（資料庫為空）
@@ -357,20 +347,17 @@ async def check_updates(ctx):
             await bot.loop.run_in_executor(None, lambda: monitor.update_products(new_products_data))
             logger.info(f"資料庫更新完成，耗時：{time.time() - start_time:.2f}秒")
             
-            # 如果是第一次執行，发送初始化消息
+            # 如果是第一次執行，發送初始化訊息
             if is_first_run:
                 embed = discord.Embed(title="🔍 吉伊卡哇商品監控初始化", 
                                     description=f"初始化時間: {current_time}\n目前商品總數: {len(new_products)}", 
                                     color=0x00ff00)
                 embed.add_field(name="初始化完成", value="已完成商品資料庫的初始化，開始監控商品變化。", inline=False)
-                # 创建 webhook session
-                async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                    await webhook.send(embed=embed, session=session)
+                await channel.send(embed=embed)
                 logger.info("資料庫初始化完成")
                 return
             
-            # 发送例行监控通知
+            # 發送例行監控通知
             embed = discord.Embed(title="🔍 吉伊卡哇商品監控", 
                                 description=f"檢查時間: {current_time}\n目前商品總數: {len(new_products)}", 
                                 color=0x00ff00)
@@ -391,12 +378,10 @@ async def check_updates(ctx):
             else:
                 embed.add_field(name="下架商品", value="無", inline=False)
             
-            # 发送例行通知
-            async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                await webhook.send(embed=embed, session=session)
+            # 發送例行通知
+            await channel.send(embed=embed)
             
-            # 如果有变化，发送提醒通知
+            # 如果有變化，在當前頻道發送通知
             if new_listings or delisted:
                 alert_embed = discord.Embed(title="⚠️ 商品更新提醒", 
                                           description=f"檢查時間: {current_time}", 
@@ -414,10 +399,8 @@ async def check_updates(ctx):
                         delisted_text = delisted_text[:1021] + "..."
                     alert_embed.add_field(name="下架商品", value=delisted_text, inline=False)
                 
-                # 发送提醒通知
-                async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                    await webhook.send(embed=alert_embed, session=session)
+                # 在執行指令的頻道發送通知
+                await channel.send(alert_embed)
             
             logger.info(f"=== 檢查完成 ===\n")
                 
@@ -425,36 +408,26 @@ async def check_updates(ctx):
         error_msg = f"檢查更新時發生錯誤: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
-        # 发送错误消息
-        async with aiohttp.ClientSession() as session:
-            webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-            await webhook.send(f"錯誤：{error_msg}", session=session)
+        await channel.send(f"錯誤：{error_msg}")
 
 async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
     for attempt in range(1, max_retries + 1):
         try:
             await check_updates(ctx)
-            # 无论是什么类型的 ctx，都执行清理
-            await clean_duplicate_history(ctx)
             break  # 成功就跳出
         except FetchProductError as e:
             logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
             if attempt < max_retries:
-                async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                    await webhook.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…", session=session)
+                await ctx.channel.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
                 await asyncio.sleep(retry_delay)
             else:
-                async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                    await webhook.send(f"獲取商品數據多次失敗，請稍後再試。", session=session)
+                await ctx.channel.send(f"獲取商品數據多次失敗，請稍後再試。")
                 break
         except Exception as e:
+            # 其他錯誤不重試
             logger.error(f"check_updates 其他錯誤：{str(e)}")
             logger.error(traceback.format_exc())
-            async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
-                await webhook.send(f"檢查過程發生未預期錯誤：{str(e)}", session=session)
+            await ctx.channel.send(f"檢查過程發生未預期錯誤：{str(e)}")
             break
 
 @bot.event
@@ -1734,16 +1707,11 @@ async def clean_database(ctx):
 async def clean_duplicate_history(ctx):
     """清理歷史記錄中的重複項目"""
     try:
-        # 检查是否有 send 方法（是否是真实的 Context 对象）
-        can_send = hasattr(ctx, 'send')
+        # 發送開始訊息
+        message = await ctx.send("開始清理重複的歷史記錄...")
         
-        # 只在有真实 Context 时发送开始消息
-        message = None
-        if can_send:
-            message = await ctx.send("開始清理重複的歷史記錄...")
-        
-        # 清理各个集合的重复记录
-        collections = ['new', 'delisted', 'resale', 'history']
+        # 清理各個集合的重複記錄
+        collections = ['new', 'delisted', 'resale', 'history']  # 添加 history 集合
         total_deleted = 0
         total_kept = 0
         results = []
@@ -1754,20 +1722,15 @@ async def clean_duplicate_history(ctx):
             total_kept += kept
             results.append(f"{collection} 集合：刪除 {deleted} 筆，保留 {kept} 筆")
         
-        # 只在有真实 Context 时更新消息
-        if can_send and message:
-            result_text = "\n".join(results)
-            summary = f"清理完成！\n總計：刪除 {total_deleted} 筆重複記錄，保留 {total_kept} 筆記錄\n\n詳細結果：\n{result_text}"
-            await message.edit(content=summary)
-        
-        # 记录清理结果到日志
-        logger.info(f"清理重複記錄完成：刪除 {total_deleted} 筆，保留 {total_kept} 筆")
+        # 更新訊息
+        result_text = "\n".join(results)
+        summary = f"清理完成！\n總計：刪除 {total_deleted} 筆重複記錄，保留 {total_kept} 筆記錄\n\n詳細結果：\n{result_text}"
+        await message.edit(content=summary)
         
     except Exception as e:
+        await ctx.send(f"清理過程中發生錯誤：{str(e)}")
         logger.error(f"清理重複記錄時發生錯誤：{str(e)}")
         logger.error(traceback.format_exc())
-        if hasattr(ctx, 'send'):
-            await ctx.send(f"清理過程中發生錯誤：{str(e)}")
 
 # 在 monitor.py 中添加新方法
 def delete_duplicate_history(self, keep_ids):
