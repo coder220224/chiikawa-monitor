@@ -415,20 +415,24 @@ async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
         try:
             await check_updates(ctx)
             # 在成功执行完 check_updates 后，自动执行清理重复记录
-            await clean_duplicate_history(ctx)
+            if hasattr(ctx, 'send'):  # 检查是否是真实的 Context 对象
+                await clean_duplicate_history(ctx)
             break  # 成功就跳出
         except FetchProductError as e:
             logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
             if attempt < max_retries:
-                await ctx.channel.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
+                if hasattr(ctx, 'channel'):  # 检查是否有 channel 属性
+                    await ctx.channel.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
                 await asyncio.sleep(retry_delay)
             else:
-                await ctx.channel.send(f"獲取商品數據多次失敗，請稍後再試。")
+                if hasattr(ctx, 'channel'):
+                    await ctx.channel.send(f"獲取商品數據多次失敗，請稍後再試。")
                 break
         except Exception as e:
             logger.error(f"check_updates 其他錯誤：{str(e)}")
             logger.error(traceback.format_exc())
-            await ctx.channel.send(f"檢查過程發生未預期錯誤：{str(e)}")
+            if hasattr(ctx, 'channel'):
+                await ctx.channel.send(f"檢查過程發生未預期錯誤：{str(e)}")
             break
 
 @bot.event
@@ -1708,11 +1712,16 @@ async def clean_database(ctx):
 async def clean_duplicate_history(ctx):
     """清理歷史記錄中的重複項目"""
     try:
-        # 發送開始訊息
-        message = await ctx.send("開始清理重複的歷史記錄...")
+        # 检查是否有 send 方法（是否是真实的 Context 对象）
+        can_send = hasattr(ctx, 'send')
         
-        # 清理各個集合的重複記錄
-        collections = ['new', 'delisted', 'resale', 'history']  # 添加 history 集合
+        # 只在有真实 Context 时发送开始消息
+        message = None
+        if can_send:
+            message = await ctx.send("開始清理重複的歷史記錄...")
+        
+        # 清理各个集合的重复记录
+        collections = ['new', 'delisted', 'resale', 'history']
         total_deleted = 0
         total_kept = 0
         results = []
@@ -1723,15 +1732,20 @@ async def clean_duplicate_history(ctx):
             total_kept += kept
             results.append(f"{collection} 集合：刪除 {deleted} 筆，保留 {kept} 筆")
         
-        # 更新訊息
-        result_text = "\n".join(results)
-        summary = f"清理完成！\n總計：刪除 {total_deleted} 筆重複記錄，保留 {total_kept} 筆記錄\n\n詳細結果：\n{result_text}"
-        await message.edit(content=summary)
+        # 只在有真实 Context 时更新消息
+        if can_send and message:
+            result_text = "\n".join(results)
+            summary = f"清理完成！\n總計：刪除 {total_deleted} 筆重複記錄，保留 {total_kept} 筆記錄\n\n詳細結果：\n{result_text}"
+            await message.edit(content=summary)
+        
+        # 记录清理结果到日志
+        logger.info(f"清理重複記錄完成：刪除 {total_deleted} 筆，保留 {total_kept} 筆")
         
     except Exception as e:
-        await ctx.send(f"清理過程中發生錯誤：{str(e)}")
         logger.error(f"清理重複記錄時發生錯誤：{str(e)}")
         logger.error(traceback.format_exc())
+        if hasattr(ctx, 'send'):
+            await ctx.send(f"清理過程中發生錯誤：{str(e)}")
 
 # 在 monitor.py 中添加新方法
 def delete_duplicate_history(self, keep_ids):
