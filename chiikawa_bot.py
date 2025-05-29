@@ -414,6 +414,8 @@ async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
     for attempt in range(1, max_retries + 1):
         try:
             await check_updates(ctx)
+            # 在成功执行完 check_updates 后，自动执行清理重复记录
+            await clean_duplicate_history(ctx)
             break  # 成功就跳出
         except FetchProductError as e:
             logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
@@ -424,7 +426,6 @@ async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
                 await ctx.channel.send(f"獲取商品數據多次失敗，請稍後再試。")
                 break
         except Exception as e:
-            # 其他錯誤不重試
             logger.error(f"check_updates 其他錯誤：{str(e)}")
             logger.error(traceback.format_exc())
             await ctx.channel.send(f"檢查過程發生未預期錯誤：{str(e)}")
