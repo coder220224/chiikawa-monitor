@@ -690,6 +690,8 @@ class ChiikawaMonitor:
                     logger.info(f"商品重新上架: {product['name']}")
                     # 從下架集合中移除
                     self.delisted.delete_many({'url': product['url']})
+                    # 從補貨集合中移除
+                    self.resale.delete_many({'url': product['url']})
                 
                 # 不管商品是新增還是重新上架，都添加到新上架集合
                 new_data = history_data.copy()
