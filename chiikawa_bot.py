@@ -25,7 +25,7 @@ from linebot.models import (
 )
 import time
 from bson import ObjectId
-from discord import Webhook, AsyncWebhookAdapter
+from discord import Webhook
 
 # 設定台灣時區
 TW_TIMEZONE = pytz.timezone('Asia/Taipei')
@@ -228,8 +228,8 @@ async def check_updates(ctx):
             logger.error(traceback.format_exc())
             # 发送错误消息
             async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                await webhook.send(f"錯誤：{error_msg}")
+                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                await webhook.send(f"錯誤：{error_msg}", session=session)
             return
 
         # 進行三次檢查，確保結果一致
@@ -248,8 +248,8 @@ async def check_updates(ctx):
                     logger.error(error_msg)
                     # 发送错误消息
                     async with aiohttp.ClientSession() as session:
-                        webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                        await webhook.send(f"錯誤：{error_msg}")
+                        webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                        await webhook.send(f"錯誤：{error_msg}", session=session)
                     raise FetchProductError(error_msg)
                 
                 # 將結果轉換為 URL 集合
@@ -270,8 +270,8 @@ async def check_updates(ctx):
                 logger.error(traceback.format_exc())
                 # 发送错误消息
                 async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                    await webhook.send(f"錯誤：{error_msg}")
+                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                    await webhook.send(f"錯誤：{error_msg}", session=session)
                 raise FetchProductError(error_msg)
         
         # 檢查是否是第一次執行（資料庫為空）
@@ -365,8 +365,8 @@ async def check_updates(ctx):
                 embed.add_field(name="初始化完成", value="已完成商品資料庫的初始化，開始監控商品變化。", inline=False)
                 # 创建 webhook session
                 async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                    await webhook.send(embed=embed)
+                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                    await webhook.send(embed=embed, session=session)
                 logger.info("資料庫初始化完成")
                 return
             
@@ -393,8 +393,8 @@ async def check_updates(ctx):
             
             # 发送例行通知
             async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                await webhook.send(embed=embed)
+                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                await webhook.send(embed=embed, session=session)
             
             # 如果有变化，发送提醒通知
             if new_listings or delisted:
@@ -416,8 +416,8 @@ async def check_updates(ctx):
                 
                 # 发送提醒通知
                 async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                    await webhook.send(embed=alert_embed)
+                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                    await webhook.send(embed=alert_embed, session=session)
             
             logger.info(f"=== 檢查完成 ===\n")
                 
@@ -427,8 +427,8 @@ async def check_updates(ctx):
         logger.error(traceback.format_exc())
         # 发送错误消息
         async with aiohttp.ClientSession() as session:
-            webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-            await webhook.send(f"錯誤：{error_msg}")
+            webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+            await webhook.send(f"錯誤：{error_msg}", session=session)
 
 async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
     for attempt in range(1, max_retries + 1):
@@ -441,20 +441,20 @@ async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
             logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
             if attempt < max_retries:
                 async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                    await webhook.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
+                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                    await webhook.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…", session=session)
                 await asyncio.sleep(retry_delay)
             else:
                 async with aiohttp.ClientSession() as session:
-                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                    await webhook.send(f"獲取商品數據多次失敗，請稍後再試。")
+                    webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                    await webhook.send(f"獲取商品數據多次失敗，請稍後再試。", session=session)
                 break
         except Exception as e:
             logger.error(f"check_updates 其他錯誤：{str(e)}")
             logger.error(traceback.format_exc())
             async with aiohttp.ClientSession() as session:
-                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL, adapter=AsyncWebhookAdapter(session))
-                await webhook.send(f"檢查過程發生未預期錯誤：{str(e)}")
+                webhook = Webhook.from_url(DISCORD_WEBHOOK_URL)
+                await webhook.send(f"檢查過程發生未預期錯誤：{str(e)}", session=session)
             break
 
 @bot.event
