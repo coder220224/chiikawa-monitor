@@ -414,14 +414,13 @@ async def check_updates_with_retry(ctx, max_retries=3, retry_delay=3):
     for attempt in range(1, max_retries + 1):
         try:
             await check_updates(ctx)
-            # 在成功执行完 check_updates 后，自动执行清理重复记录
-            if hasattr(ctx, 'send'):  # 检查是否是真实的 Context 对象
-                await clean_duplicate_history(ctx)
+            # 无论是什么类型的 ctx，都执行清理
+            await clean_duplicate_history(ctx)
             break  # 成功就跳出
         except FetchProductError as e:
             logger.error(f"獲取商品數據失敗（第{attempt}次），重試整個監控流程：{str(e)}")
             if attempt < max_retries:
-                if hasattr(ctx, 'channel'):  # 检查是否有 channel 属性
+                if hasattr(ctx, 'channel'):  # 只在发送消息时检查属性
                     await ctx.channel.send(f"獲取商品數據失敗（第{attempt}次），{retry_delay}秒後重試整個監控流程…")
                 await asyncio.sleep(retry_delay)
             else:
